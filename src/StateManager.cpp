@@ -10,7 +10,10 @@
 #  include <QDataStream>
 #  include <QLocalServer>
 #  include <QLocalSocket>
+#  include <QSharedPointer>
 #endif
+
+#include <QUrl>
 
 #include "GlobalShortcuts.h"
 #include "StateManager.h"
@@ -48,14 +51,22 @@ StateManager::StateManager(QObject *parent) : QObject(parent)
         connect(m_activationServer, &QLocalServer::newConnection, this, [this]() {
             while (m_activationServer->hasPendingConnections()) {
                 auto socket = m_activationServer->nextPendingConnection();
-                connect(socket, &QLocalSocket::readyRead, this, [this, socket]() {
-                    QDataStream input(socket);
+                auto payload = QSharedPointer<QByteArray>::create();
+                auto processInput = [this, socket, payload]() {
+                    payload->append(socket->readAll());
+
+                    QDataStream input(payload.data(), QIODevice::ReadOnly);
                     input.setVersion(QDataStream::Qt_6_0);
-                    input.startTransaction();
 
                     QStringList arguments;
                     input >> arguments;
-                    if (!input.commitTransaction()) {
+                    if (input.status() == QDataStream::ReadPastEnd) {
+                        return;
+                    }
+                    if (input.status() != QDataStream::Ok) {
+                        qCWarning(lcStateHandling)
+                                << "failed to decode arguments from Windows activation";
+                        socket->disconnectFromServer();
                         return;
                     }
 
@@ -63,10 +74,18 @@ StateManager::StateManager(QObject *parent) : QObject(parent)
                     for (const auto &argument : std::as_const(arguments)) {
                         values.push_back(argument);
                     }
+                    qCInfo(lcStateHandling) << "received Windows activation arguments"
+                                            << arguments;
                     ActivateAction("invoke", values, {});
                     socket->disconnectFromServer();
-                });
+                };
+                connect(socket, &QLocalSocket::readyRead, this, processInput);
                 connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
+
+                // Data may already be buffered before readyRead is connected.
+                if (socket->bytesAvailable() > 0) {
+                    processInput();
+                }
             }
         });
     } else {
@@ -245,7 +264,9 @@ void StateManager::sendArguments(const QStringList &args)
         qCWarning(lcStateHandling) << "failed to forward arguments to running GOnnect instance:"
                                    << socket.errorString();
     }
-    socket.disconnectFromServer();
+    if (!socket.waitForDisconnected(1500)) {
+        socket.disconnectFromServer();
+    }
 #else
     Q_UNUSED(args)
 #endif
@@ -271,7 +292,31 @@ void StateManager::ActivateAction(const QString &action_name, const QVariantList
             } else if (value == "--hangup") {
                 SIPCallManager::instance().endAllCalls();
             } else {
-                SIPCallManager::instance().call(value);
+                QString dialTarget = value.trimmed();
+                const auto separator = dialTarget.indexOf(':');
+                if (separator > 0) {
+                    const auto scheme = dialTarget.first(separator);
+                    if (scheme.compare("tel", Qt::CaseInsensitive) == 0
+                        || scheme.compare("callto", Qt::CaseInsensitive) == 0) {
+                        dialTarget = dialTarget.sliced(separator + 1);
+                        while (dialTarget.startsWith('/')) {
+                            dialTarget.removeFirst();
+                        }
+                        dialTarget = QUrl::fromPercentEncoding(dialTarget.toUtf8());
+                    }
+                }
+
+                const auto queryStart = dialTarget.indexOf('?');
+                if (queryStart >= 0) {
+                    dialTarget.truncate(queryStart);
+                }
+
+                if (dialTarget.isEmpty()) {
+                    qCWarning(lcStateHandling) << "ignoring empty Windows activation target";
+                } else {
+                    qCInfo(lcStateHandling) << "dialing Windows activation target" << dialTarget;
+                    SIPCallManager::instance().call(dialTarget);
+                }
                 break;
             }
         }
