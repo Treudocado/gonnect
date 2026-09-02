@@ -6,6 +6,10 @@
 #include <QObject>
 #include <QTranslator>
 
+#ifdef Q_OS_WINDOWS
+#  include <QTimer>
+#endif
+
 #define RESTART_CODE 255
 
 // The number of miliseconds a call shall be visible after it has ended
@@ -21,6 +25,10 @@ public:
 
     bool isFirstInstance() const;
     void sendArguments() const;
+
+#ifdef Q_OS_WINDOWS
+    void handleActivationArguments(const QStringList &arguments);
+#endif
 
     void setRootWindow(QQuickWindow *win);
     QQuickWindow *rootWindow() const { return m_rootWindow; }
@@ -54,6 +62,11 @@ private:
     void initializeSIP();
     void installTranslations();
 
+#ifdef Q_OS_WINDOWS
+    void armPendingActivation();
+    void dispatchPendingActivation();
+#endif
+
 #ifdef Q_OS_LINUX
     static int s_sighupFd[2];
     static int s_sigtermFd[2];
@@ -69,7 +82,9 @@ private:
     QTranslator m_declarativeTranslator;
 
 #ifdef Q_OS_WINDOWS
-    QStringList m_startupArguments;
+    QStringList m_pendingActivationArguments;
+    QTimer m_activationTimeout;
+    QMetaObject::Connection m_activationRegistrationConnection;
 #endif
 
     bool m_initialized = false;

@@ -5,6 +5,7 @@
 #include "NotificationManager.h"
 #include "appversion.h"
 #include "SIPManager.h"
+#include "SIPAccountManager.h"
 #include "SIPCallManager.h"
 #include "SystemTrayMenu.h"
 #include "AddressBookManager.h"
@@ -20,6 +21,7 @@
 #include <QQmlContext>
 #include <QDesktopServices>
 #include <QtWebEngineQuick>
+#include <algorithm>
 
 #ifdef Q_OS_MACOS
 #  define LOGFAULT_WITH_OS_LOG
@@ -50,7 +52,18 @@ int Application::s_sigtermFd[2];
 Application::Application(int &argc, char **argv) : QApplication(argc, argv)
 {
 #ifdef Q_OS_WINDOWS
-    m_startupArguments = arguments().sliced(1);
+    m_pendingActivationArguments = arguments().sliced(1);
+
+    m_activationTimeout.setSingleShot(true);
+    m_activationTimeout.setInterval(30s);
+    connect(&m_activationTimeout, &QTimer::timeout, this, [this]() {
+        qCWarning(lcApplication)
+                << "discarding pending Windows activation because SIP registration timed out"
+                << m_pendingActivationArguments;
+        m_pendingActivationArguments.clear();
+        disconnect(m_activationRegistrationConnection);
+        m_activationRegistrationConnection = {};
+    });
 #endif
 
     qCCritical(lcApplication) << "Constructing app, version" << getVersion();
@@ -88,7 +101,10 @@ Application::Application(int &argc, char **argv) : QApplication(argc, argv)
                      [](QSessionManager &manager) { manager.cancel(); });
 #endif
 
-    StateManager::instance().initialize();
+    auto &stateManager = StateManager::instance();
+    if (stateManager.isFirstInstance()) {
+        stateManager.initialize();
+    }
 }
 
 void Application::installTranslations()
@@ -152,16 +168,90 @@ void Application::initializeSIP()
     m_initialized = true;
 
 #ifdef Q_OS_WINDOWS
-    if (!m_startupArguments.isEmpty()) {
-        QVariantList args;
-        for (const auto &argument : std::as_const(m_startupArguments)) {
-            args.push_back(argument);
-        }
-        m_startupArguments.clear();
-        StateManager::instance().ActivateAction("invoke", args, {});
-    }
+    const QStringList startupArguments = m_pendingActivationArguments;
+    m_pendingActivationArguments.clear();
+    handleActivationArguments(startupArguments);
 #endif
 }
+
+#ifdef Q_OS_WINDOWS
+void Application::handleActivationArguments(const QStringList &arguments)
+{
+    if (arguments.isEmpty()) {
+        return;
+    }
+
+    const bool requiresSip = std::ranges::any_of(arguments, [](const QString &argument) {
+        return argument != "--show" && argument != "--hangup";
+    });
+
+    if (!requiresSip || (m_initialized && SIPAccountManager::instance().sipRegistered())) {
+        QVariantList values;
+        for (const auto &argument : arguments) {
+            values.push_back(argument);
+        }
+        StateManager::instance().ActivateAction("invoke", values, {});
+        return;
+    }
+
+    if (!m_pendingActivationArguments.isEmpty()) {
+        qCWarning(lcApplication) << "ignoring additional Windows activation while another is pending"
+                                 << arguments;
+        return;
+    }
+
+    m_pendingActivationArguments = arguments;
+    if (m_initialized) {
+        armPendingActivation();
+    }
+}
+
+void Application::armPendingActivation()
+{
+    if (m_pendingActivationArguments.isEmpty()) {
+        return;
+    }
+
+    auto &accountManager = SIPAccountManager::instance();
+    if (accountManager.sipRegistered()) {
+        dispatchPendingActivation();
+        return;
+    }
+
+    if (!m_activationRegistrationConnection) {
+        m_activationRegistrationConnection =
+                connect(&accountManager, &SIPAccountManager::sipRegisteredChanged, this,
+                        [this](bool registered) {
+                            if (registered) {
+                                dispatchPendingActivation();
+                            }
+                        });
+    }
+
+    qCInfo(lcApplication) << "waiting for SIP registration before Windows activation"
+                          << m_pendingActivationArguments;
+    m_activationTimeout.start();
+}
+
+void Application::dispatchPendingActivation()
+{
+    if (m_pendingActivationArguments.isEmpty()) {
+        return;
+    }
+
+    m_activationTimeout.stop();
+    disconnect(m_activationRegistrationConnection);
+    m_activationRegistrationConnection = {};
+
+    QVariantList values;
+    for (const auto &argument : std::as_const(m_pendingActivationArguments)) {
+        values.push_back(argument);
+    }
+    m_pendingActivationArguments.clear();
+
+    StateManager::instance().ActivateAction("invoke", values, {});
+}
+#endif
 
 bool Application::isFirstInstance() const
 {

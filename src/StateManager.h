@@ -74,6 +74,7 @@ private:
     GOnnectDBusAPI *m_apiEndpoint = nullptr;
 #ifdef Q_OS_WINDOWS
     QLocalServer *m_activationServer = nullptr;
+    void *m_instanceMutex = nullptr;
 #endif
     ICallState::States m_oldCallState = ICallState::State::Idle;
     bool m_uiEditMode = false;

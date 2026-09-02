@@ -3,6 +3,7 @@
 #include <Lmcons.h>
 #include "WindowsUserInfo.h"
 #include "UserInfo.h"
+#include "ReadOnlyConfdSettings.h"
 
 Q_LOGGING_CATEGORY(lcWindowsUI, "gonnect.platform.windows.userinfo")
 
@@ -19,6 +20,13 @@ WindowsUserInfo::WindowsUserInfo() : UserInfo{} { }
 
 QString WindowsUserInfo::getDisplayName()
 {
+    ReadOnlyConfdSettings settings;
+    const QString configuredDisplayName =
+            settings.value("generic/displayName", "").toString().trimmed();
+    if (!configuredDisplayName.isEmpty()) {
+        return configuredDisplayName;
+    }
+
     WCHAR displayName[UNLEN + 1];
     DWORD len = UNLEN + 1;
     if (!GetUserName(displayName, &len)) {
@@ -26,5 +34,5 @@ QString WindowsUserInfo::getDisplayName()
         return "";
     }
 
-    return QString::fromWCharArray(displayName, len);
+    return QString::fromWCharArray(displayName);
 }

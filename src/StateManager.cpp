@@ -8,9 +8,12 @@
 
 #ifdef Q_OS_WINDOWS
 #  include <QDataStream>
+#  include <QElapsedTimer>
 #  include <QLocalServer>
 #  include <QLocalSocket>
 #  include <QSharedPointer>
+#  include <QThread>
+#  include <qt_windows.h>
 #endif
 
 #include <QUrl>
@@ -29,6 +32,7 @@ Q_LOGGING_CATEGORY(lcStateHandling, "gonnect.state")
 
 #ifdef Q_OS_WINDOWS
 static const QString s_activationServerName = QStringLiteral("de.gonicus.gonnect.activation");
+static const wchar_t s_instanceMutexName[] = L"Local\\de.gonicus.gonnect.instance";
 #endif
 
 StateManager::StateManager(QObject *parent) : QObject(parent)
@@ -43,11 +47,36 @@ StateManager::StateManager(QObject *parent) : QObject(parent)
                 con.registerObject(FLATPAK_APP_PATH, this) && con.registerService(FLATPAK_APP_ID);
     }
 #elif defined(Q_OS_WINDOWS) && !defined(MULTI_INSTANCE)
-    m_activationServer = new QLocalServer(this);
-    m_activationServer->setSocketOptions(QLocalServer::UserAccessOption);
-    m_isFirstInstance = m_activationServer->listen(s_activationServerName);
+    m_instanceMutex = CreateMutexW(nullptr, FALSE, s_instanceMutexName);
+    if (m_instanceMutex) {
+        m_isFirstInstance = GetLastError() != ERROR_ALREADY_EXISTS;
+    } else {
+        qCWarning(lcStateHandling)
+                << "failed to create Windows instance mutex; falling back to local server:"
+                << GetLastError();
+    }
 
     if (m_isFirstInstance) {
+        m_activationServer = new QLocalServer(this);
+        m_activationServer->setSocketOptions(QLocalServer::UserAccessOption);
+
+        bool listening = m_activationServer->listen(s_activationServerName);
+        if (!listening && m_instanceMutex) {
+            // The native mutex proves that no other instance in this Windows session is alive.
+            // Retry after removing a stale local-server endpoint.
+            QLocalServer::removeServer(s_activationServerName);
+            listening = m_activationServer->listen(s_activationServerName);
+        }
+
+        if (!m_instanceMutex) {
+            m_isFirstInstance = listening;
+        }
+
+        if (!listening) {
+            qCCritical(lcStateHandling) << "failed to create Windows activation server:"
+                                        << m_activationServer->errorString();
+        }
+
         connect(m_activationServer, &QLocalServer::newConnection, this, [this]() {
             while (m_activationServer->hasPendingConnections()) {
                 auto socket = m_activationServer->nextPendingConnection();
@@ -70,13 +99,10 @@ StateManager::StateManager(QObject *parent) : QObject(parent)
                         return;
                     }
 
-                    QVariantList values;
-                    for (const auto &argument : std::as_const(arguments)) {
-                        values.push_back(argument);
-                    }
                     qCInfo(lcStateHandling) << "received Windows activation arguments"
                                             << arguments;
-                    ActivateAction("invoke", values, {});
+                    static_cast<Application *>(Application::instance())
+                            ->handleActivationArguments(arguments);
                     socket->disconnectFromServer();
                 };
                 connect(socket, &QLocalSocket::readyRead, this, processInput);
@@ -89,7 +115,7 @@ StateManager::StateManager(QObject *parent) : QObject(parent)
             }
         });
     } else {
-        qCInfo(lcStateHandling) << "another Windows instance owns the activation server";
+        qCInfo(lcStateHandling) << "another Windows instance owns the instance mutex";
     }
 #endif
 }
@@ -188,6 +214,13 @@ StateManager::~StateManager()
     }
 #endif
 
+#ifdef Q_OS_WINDOWS
+    if (m_instanceMutex) {
+        CloseHandle(static_cast<HANDLE>(m_instanceMutex));
+        m_instanceMutex = nullptr;
+    }
+#endif
+
     if (SIPCallManager::instance().activeCalls() == 0) {
         m_inhibitHelper->release();
     }
@@ -246,8 +279,20 @@ void StateManager::sendArguments(const QStringList &args)
     }
 #elif defined(Q_OS_WINDOWS)
     QLocalSocket socket;
-    socket.connectToServer(s_activationServerName, QIODevice::WriteOnly);
-    if (!socket.waitForConnected(1500)) {
+    QElapsedTimer connectTimer;
+    connectTimer.start();
+
+    bool connected = false;
+    do {
+        socket.abort();
+        socket.connectToServer(s_activationServerName, QIODevice::WriteOnly);
+        connected = socket.waitForConnected(200);
+        if (!connected) {
+            QThread::msleep(50);
+        }
+    } while (!connected && connectTimer.elapsed() < 2500);
+
+    if (!connected) {
         qCWarning(lcStateHandling) << "failed to connect to running GOnnect instance:"
                                    << socket.errorString();
         return;
