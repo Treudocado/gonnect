@@ -13,6 +13,9 @@
 #  include <QLocalSocket>
 #  include <QSharedPointer>
 #  include <QThread>
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
 #  include <qt_windows.h>
 #endif
 
