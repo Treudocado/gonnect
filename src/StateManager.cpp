@@ -6,6 +6,12 @@
 #  include "GOnnectDBusAPI.h"
 #endif
 
+#ifdef Q_OS_WINDOWS
+#  include <QDataStream>
+#  include <QLocalServer>
+#  include <QLocalSocket>
+#endif
+
 #include "GlobalShortcuts.h"
 #include "StateManager.h"
 #include "SIPCallManager.h"
@@ -18,6 +24,10 @@
 
 Q_LOGGING_CATEGORY(lcStateHandling, "gonnect.state")
 
+#ifdef Q_OS_WINDOWS
+static const QString s_activationServerName = QStringLiteral("de.gonicus.gonnect.activation");
+#endif
+
 StateManager::StateManager(QObject *parent) : QObject(parent)
 {
 #ifdef Q_OS_LINUX
@@ -28,6 +38,39 @@ StateManager::StateManager(QObject *parent) : QObject(parent)
     if (con.isConnected()) {
         m_isFirstInstance =
                 con.registerObject(FLATPAK_APP_PATH, this) && con.registerService(FLATPAK_APP_ID);
+    }
+#elif defined(Q_OS_WINDOWS) && !defined(MULTI_INSTANCE)
+    m_activationServer = new QLocalServer(this);
+    m_activationServer->setSocketOptions(QLocalServer::UserAccessOption);
+    m_isFirstInstance = m_activationServer->listen(s_activationServerName);
+
+    if (m_isFirstInstance) {
+        connect(m_activationServer, &QLocalServer::newConnection, this, [this]() {
+            while (m_activationServer->hasPendingConnections()) {
+                auto socket = m_activationServer->nextPendingConnection();
+                connect(socket, &QLocalSocket::readyRead, this, [this, socket]() {
+                    QDataStream input(socket);
+                    input.setVersion(QDataStream::Qt_6_0);
+                    input.startTransaction();
+
+                    QStringList arguments;
+                    input >> arguments;
+                    if (!input.commitTransaction()) {
+                        return;
+                    }
+
+                    QVariantList values;
+                    for (const auto &argument : std::as_const(arguments)) {
+                        values.push_back(argument);
+                    }
+                    ActivateAction("invoke", values, {});
+                    socket->disconnectFromServer();
+                });
+                connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
+            }
+        });
+    } else {
+        qCInfo(lcStateHandling) << "another Windows instance owns the activation server";
     }
 #endif
 }
@@ -182,6 +225,27 @@ void StateManager::sendArguments(const QStringList &args)
 
         actionInterface.ActivateAction("invoke", vlArgs, {});
     }
+#elif defined(Q_OS_WINDOWS)
+    QLocalSocket socket;
+    socket.connectToServer(s_activationServerName, QIODevice::WriteOnly);
+    if (!socket.waitForConnected(1500)) {
+        qCWarning(lcStateHandling) << "failed to connect to running GOnnect instance:"
+                                   << socket.errorString();
+        return;
+    }
+
+    QByteArray payload;
+    QDataStream output(&payload, QIODevice::WriteOnly);
+    output.setVersion(QDataStream::Qt_6_0);
+    output << args;
+
+    socket.write(payload);
+    socket.flush();
+    if (socket.bytesToWrite() > 0 && !socket.waitForBytesWritten(1500)) {
+        qCWarning(lcStateHandling) << "failed to forward arguments to running GOnnect instance:"
+                                   << socket.errorString();
+    }
+    socket.disconnectFromServer();
 #else
     Q_UNUSED(args)
 #endif

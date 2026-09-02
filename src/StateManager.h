@@ -8,6 +8,7 @@
 
 class DBusActivationAdapter;
 class GOnnectDBusAPI;
+class QLocalServer;
 
 class StateManager : public QObject
 {
@@ -71,6 +72,9 @@ private:
     InhibitHelper *m_inhibitHelper = nullptr;
     DBusActivationAdapter *m_activationAdapter = nullptr;
     GOnnectDBusAPI *m_apiEndpoint = nullptr;
+#ifdef Q_OS_WINDOWS
+    QLocalServer *m_activationServer = nullptr;
+#endif
     ICallState::States m_oldCallState = ICallState::State::Idle;
     bool m_uiEditMode = false;
     bool m_uiHasActiveEditDialog = false;

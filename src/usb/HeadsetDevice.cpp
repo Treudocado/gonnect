@@ -57,6 +57,23 @@ bool HeadsetDevice::open()
     hid_device *device = hid_open_path(m_path.toStdString().c_str());
     if (device) {
         m_device = device;
+
+        QSet<QString> auxiliaryPaths;
+        for (const auto &path : std::as_const(m_teamsUsagePaths)) {
+            if (!path.isEmpty() && path != m_path) {
+                auxiliaryPaths.insert(path);
+            }
+        }
+        for (const auto &path : std::as_const(auxiliaryPaths)) {
+            auto auxiliaryDevice = hid_open_path(path.toStdString().c_str());
+            if (auxiliaryDevice) {
+                m_auxiliaryDevices.insert(path, auxiliaryDevice);
+                qCInfo(lcHeadset) << "Opened auxiliary Teams HID collection" << path;
+            } else {
+                qCWarning(lcHeadset) << "Failed to open auxiliary Teams HID collection" << path;
+            }
+        }
+
         m_eventHandler.start();
         m_isOpen = true;
 
@@ -67,11 +84,17 @@ bool HeadsetDevice::open()
 
             // Read vendor extension from device
             buf[0] = m_teamsUsageMapping[UsageId::Teams_VendorExtension];
-            auto res = hid_get_feature_report(device, buf, sizeof(buf));
+            auto teamsDevice = deviceForTeamsUsage(UsageId::Teams_VendorExtension);
+            auto res = teamsDevice ? hid_get_feature_report(teamsDevice, buf, sizeof(buf)) : -1;
             if (res >= 5) {
                 quint32 vendorId = buf[1] + (buf[2] << 8);
                 quint32 version = buf[3] + (buf[4] << 8);
                 m_displaySupported = vendorId == 0x045e && version == 0x0200;
+                qCInfo(lcHeadset) << "Teams display extension detected; vendor"
+                                  << QString::asprintf("0x%04X", vendorId) << "version"
+                                  << QString::asprintf("0x%04X", version);
+            } else {
+                qCWarning(lcHeadset) << "Failed to read Teams display vendor extension";
             }
 
             // If we've display support, read the display configuration from device
@@ -79,11 +102,19 @@ bool HeadsetDevice::open()
                 && m_teamsUsageMapping.contains(UsageId::Teams_DisplayAttributes)) {
                 std::ranges::fill(buf, 0);
                 buf[0] = m_teamsUsageMapping[UsageId::Teams_DisplayAttributes];
-                auto res = hid_get_feature_report(device, buf, sizeof(buf));
+                auto attributesDevice = deviceForTeamsUsage(UsageId::Teams_DisplayAttributes);
+                auto res = attributesDevice
+                        ? hid_get_feature_report(attributesDevice, buf, sizeof(buf))
+                        : -1;
                 if (res >= 5) {
                     m_displayRows = buf[1];
                     m_displayCols = buf[2];
                     m_displayFieldSupportIndex = buf[3] + (buf[4] << 8);
+                    qCInfo(lcHeadset) << "Teams display attributes:" << m_displayRows << "rows,"
+                                      << m_displayCols << "columns, field mask"
+                                      << QString::asprintf("0x%04X", m_displayFieldSupportIndex);
+                } else {
+                    qCWarning(lcHeadset) << "Failed to read Teams display attributes";
                 }
             }
 
@@ -102,6 +133,11 @@ bool HeadsetDevice::open()
 void HeadsetDevice::close()
 {
     m_eventHandler.stop();
+
+    for (auto device : std::as_const(m_auxiliaryDevices)) {
+        hid_close(device);
+    }
+    m_auxiliaryDevices.clear();
 
     if (m_device) {
         hid_close(m_device);
@@ -360,6 +396,42 @@ unsigned HeadsetDevice::currentFlags(const quint32 reportId) const
 void HeadsetDevice::setTeamsUsageMapping(QHash<UsageId, quint16> teamsUsageMapping)
 {
     m_teamsUsageMapping = teamsUsageMapping;
+    m_teamsUsagePaths.clear();
+    for (auto it = teamsUsageMapping.constBegin(); it != teamsUsageMapping.constEnd(); ++it) {
+        m_teamsUsagePaths.insert(it.key(), m_path);
+    }
+}
+
+void HeadsetDevice::addTeamsUsageMapping(
+        const QHash<UsageId, quint16> &teamsUsageMapping, const QString &path)
+{
+    for (auto it = teamsUsageMapping.constBegin(); it != teamsUsageMapping.constEnd(); ++it) {
+        m_teamsUsageMapping.insert(it.key(), it.value());
+        m_teamsUsagePaths.insert(it.key(), path);
+        qCInfo(lcHeadset) << "Mapped Teams usage" << it.key() << "report"
+                          << QString::asprintf("0x%02X", it.value()) << "to" << path;
+    }
+}
+
+hid_device *HeadsetDevice::deviceForTeamsUsage(UsageId usage) const
+{
+    const auto path = m_teamsUsagePaths.value(usage, m_path);
+    if (path == m_path) {
+        return m_device;
+    }
+    return m_auxiliaryDevices.value(path, nullptr);
+}
+
+bool HeadsetDevice::writeTeamsOutput(hid_device *device, const unsigned char *data,
+                                     qsizetype length)
+{
+    // The Teams UC Display collection uses an 18-byte output report. Windows' HID stack expects
+    // the complete report even for controls whose actual payload is only two or three bytes.
+    unsigned char report[18];
+    std::ranges::fill(report, 0);
+    const auto copyLength = std::min(length, static_cast<qsizetype>(sizeof(report)));
+    std::copy_n(data, copyLength, report);
+    return hid_write(device, report, sizeof(report)) >= 0;
 }
 
 void HeadsetDevice::processEvents()
@@ -489,6 +561,18 @@ void HeadsetDevice::processEvents()
             Q_EMIT teamsButton();
         }
     }
+
+    const quint8 teamsButtonReportId =
+            static_cast<quint8>(m_teamsUsageMapping.value(UsageId::Teams_Button, 0));
+    if (teamsButtonReportId) {
+        for (auto device : std::as_const(m_auxiliaryDevices)) {
+            std::ranges::fill(data, 0);
+            const auto len = hid_read_timeout(device, data, sizeof(data), 0);
+            if (len >= 2 && data[0] == teamsButtonReportId && data[1] == 1) {
+                Q_EMIT teamsButton();
+            }
+        }
+    }
 }
 
 bool HeadsetDevice::displayFieldSupported(ReportDescriptorEnums::TeamsDisplayFieldSupport field)
@@ -500,7 +584,9 @@ bool HeadsetDevice::displayFieldSupported(ReportDescriptorEnums::TeamsDisplayFie
 void HeadsetDevice::setDisplayField(ReportDescriptorEnums::TeamsDisplayFieldSupport field,
                                     const QString &text)
 {
-    if (!m_device) {
+    auto attributesDevice = deviceForTeamsUsage(UsageId::Teams_CharacterAttributes);
+    auto characterDevice = deviceForTeamsUsage(UsageId::Teams_CharacterReport);
+    if (!attributesDevice || !characterDevice) {
         qCCritical(lcHeadset) << "device not open during attempt to send data";
         return;
     }
@@ -510,10 +596,11 @@ void HeadsetDevice::setDisplayField(ReportDescriptorEnums::TeamsDisplayFieldSupp
         && m_teamsUsageMapping.contains(UsageId::Teams_CharacterReport)) {
 
         unsigned char buf[18];
+        std::ranges::fill(buf, 0);
         buf[0] = m_teamsUsageMapping[UsageId::Teams_CharacterAttributes];
         buf[1] = (quint8)field;
         buf[2] = text.length() ? 0x80 : 0;
-        if (hid_write(m_device, buf, 3) < 0) {
+        if (!writeTeamsOutput(attributesDevice, buf, 3)) {
             qCWarning(lcHeadset) << "failed to write display field header to headset device";
         }
 
@@ -533,7 +620,7 @@ void HeadsetDevice::setDisplayField(ReportDescriptorEnums::TeamsDisplayFieldSupp
                 buf[dataIndex++] = ch >> 8;
             }
 
-            if (hid_write(m_device, buf, sizeof(buf)) < 0) {
+            if (!writeTeamsOutput(characterDevice, buf, sizeof(buf))) {
                 qCWarning(lcHeadset) << "failed to write display field chunk to headset device";
             }
         }
@@ -593,6 +680,9 @@ void HeadsetDevice::setOtherUserName(const QString &name)
 
 void HeadsetDevice::setOtherUserNumber(const QString &number)
 {
+    // Some Teams displays (including WH64 firmware with field mask 0x027F) expose the generic
+    // Number field but not OtherPartyNumber. Writing both lets the advertised field mask choose.
+    setDisplayField(ReportDescriptorEnums::TeamsDisplayFieldSupport::Number, number);
     setDisplayField(ReportDescriptorEnums::TeamsDisplayFieldSupport::OtherPartyNumber, number);
 }
 
@@ -609,7 +699,8 @@ void HeadsetDevice::setCallStatus(const QString &state)
 void HeadsetDevice::selectScreen(ReportDescriptorEnums::TeamsScreenSelect screen, bool clear,
                                  bool backlight)
 {
-    if (!m_device) {
+    auto displayDevice = deviceForTeamsUsage(UsageId::Teams_DisplayControl);
+    if (!displayDevice) {
         qCCritical(lcHeadset) << "device not open during attempt to send data";
         return;
     }
@@ -619,7 +710,7 @@ void HeadsetDevice::selectScreen(ReportDescriptorEnums::TeamsScreenSelect screen
         buf[0] = m_teamsUsageMapping[UsageId::Teams_DisplayControl];
         buf[1] = (((quint8)screen & 0b1111) << 3) + (backlight ? 4 : 0) + (clear ? 2 : 0)
                 + 1; // 1 for enable
-        if (hid_write(m_device, buf, sizeof(buf)) < 0) {
+        if (!writeTeamsOutput(displayDevice, buf, sizeof(buf))) {
             qCWarning(lcHeadset) << "failed to write screen selection to headset device";
         }
     }
@@ -627,7 +718,8 @@ void HeadsetDevice::selectScreen(ReportDescriptorEnums::TeamsScreenSelect screen
 
 void HeadsetDevice::setPresenceIcon(ReportDescriptorEnums::TeamsPresenceIcon icon)
 {
-    if (!m_device) {
+    auto iconsDevice = deviceForTeamsUsage(UsageId::Teams_IconsControl);
+    if (!iconsDevice) {
         qCCritical(lcHeadset) << "device not open during attempt to send data";
         return;
     }
@@ -639,7 +731,7 @@ void HeadsetDevice::setPresenceIcon(ReportDescriptorEnums::TeamsPresenceIcon ico
         buf[0] = m_teamsUsageMapping[UsageId::Teams_IconsControl];
         buf[1] = (quint8)m_presenceIcon & 0b1111;
         buf[2] = 0;
-        if (hid_write(m_device, buf, sizeof(buf)) < 0) {
+        if (!writeTeamsOutput(iconsDevice, buf, sizeof(buf))) {
             qCWarning(lcHeadset) << "failed to write presence icon to headset device";
         }
     }
@@ -647,7 +739,8 @@ void HeadsetDevice::setPresenceIcon(ReportDescriptorEnums::TeamsPresenceIcon ico
 
 void HeadsetDevice::sendASP(quint8 cmd)
 {
-    if (!m_device) {
+    auto aspDevice = deviceForTeamsUsage(UsageId::Teams_ASPNotification);
+    if (!aspDevice) {
         qCCritical(lcHeadset) << "device not open during attempt to send data";
         return;
     }
@@ -657,7 +750,7 @@ void HeadsetDevice::sendASP(quint8 cmd)
         std::ranges::fill(buf, 0);
         buf[0] = m_teamsUsageMapping[UsageId::Teams_ASPNotification];
         buf[1] = cmd; // 0x00, 0x10 and 0x40 have been captured
-        if (hid_write(m_device, buf, sizeof(buf)) < 0) {
+        if (hid_send_feature_report(aspDevice, buf, sizeof(buf)) < 0) {
             qCWarning(lcHeadset) << "failed to write ASP notification to headset device";
         }
     }

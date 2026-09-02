@@ -198,7 +198,7 @@ void USBDevices::refresh()
         lastPath = path;
 
         if (!busylightDeviceManager.createBusylightDevice(*deviceInfo)) {
-            HeadsetDevice *hd = parseReportDescriptor(deviceInfo);
+            HeadsetDevice *hd = parseReportDescriptor(deviceInfo, devs);
             if (hd) {
                 m_headsetDevices.push_back(hd);
             }
@@ -218,7 +218,8 @@ void USBDevices::clearDevices()
     BusylightDeviceManager::instance().clearDevices();
 }
 
-HeadsetDevice *USBDevices::parseReportDescriptor(const hid_device_info *deviceInfo)
+HeadsetDevice *USBDevices::parseReportDescriptor(const hid_device_info *deviceInfo,
+                                                 const hid_device_info *allDeviceInfos)
 {
     // Only look for telephony devices
     if (deviceInfo->usage_page != 0x0B) {
@@ -236,7 +237,69 @@ HeadsetDevice *USBDevices::parseReportDescriptor(const hid_device_info *deviceIn
     HeadsetDevice *hd = parseReportDescriptor(deviceInfo, descriptor, len);
 
     hid_close(device);
+
+    if (!hd) {
+        return nullptr;
+    }
+
+    // Linux hidraw usually exposes all top-level collections of one HID interface through the
+    // same path. Windows, however, creates a separate device path for every top-level collection.
+    // Pair the Microsoft Teams UC Display collections with the telephony collection so display
+    // reports can be sent through their own Windows HID handles.
+    for (auto candidate = allDeviceInfos; candidate; candidate = candidate->next) {
+        if (candidate == deviceInfo || candidate->vendor_id != deviceInfo->vendor_id
+            || candidate->product_id != deviceInfo->product_id
+            || candidate->interface_number != deviceInfo->interface_number
+            || candidate->usage_page != 0xFF99 || candidate->usage != 0x0001) {
+            continue;
+        }
+
+        const QString serial = deviceInfo->serial_number
+                ? QString::fromWCharArray(deviceInfo->serial_number)
+                : QString();
+        const QString candidateSerial = candidate->serial_number
+                ? QString::fromWCharArray(candidate->serial_number)
+                : QString();
+        if (!serial.isEmpty() && !candidateSerial.isEmpty() && serial != candidateSerial) {
+            continue;
+        }
+
+        const auto mapping = parseTeamsReportDescriptor(candidate);
+        if (!mapping.isEmpty()) {
+            qCInfo(lcHeadsets) << "Pairing Teams HID collection" << candidate->path
+                               << "with telephony collection" << deviceInfo->path;
+            hd->addTeamsUsageMapping(mapping, QString::fromUtf8(candidate->path));
+        }
+    }
+
     return hd;
+}
+
+QHash<UsageId, quint16> USBDevices::parseTeamsReportDescriptor(
+        const hid_device_info *deviceInfo)
+{
+    unsigned char descriptor[HID_API_MAX_REPORT_DESCRIPTOR_SIZE];
+    hid_device *device = hid_open_path(deviceInfo->path);
+    if (!device) {
+        qCWarning(lcHeadsets) << "failed to open Teams HID collection" << deviceInfo->path;
+        return {};
+    }
+
+    const int len = hid_get_report_descriptor(device, descriptor, sizeof(descriptor));
+    hid_close(device);
+    if (len <= 0) {
+        qCWarning(lcHeadsets) << "failed to read Teams HID descriptor" << deviceInfo->path;
+        return {};
+    }
+
+    try {
+        ReportDescriptorParser parser;
+        return parser.parseTeamsReportIDs(
+                QByteArray::fromRawData(reinterpret_cast<const char *>(descriptor), len));
+    } catch (...) {
+        qCWarning(lcHeadsets) << "failed to parse Teams HID descriptor" << deviceInfo->path;
+        return {};
+    }
 }
 
 HeadsetDevice *USBDevices::parseReportDescriptor(const hid_device_info *deviceInfo,

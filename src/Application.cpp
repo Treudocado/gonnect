@@ -49,6 +49,10 @@ int Application::s_sigtermFd[2];
 
 Application::Application(int &argc, char **argv) : QApplication(argc, argv)
 {
+#ifdef Q_OS_WINDOWS
+    m_startupArguments = arguments().sliced(1);
+#endif
+
     qCCritical(lcApplication) << "Constructing app, version" << getVersion();
     connect(this, &Application::aboutToQuit, this, &Application::shutdown);
 
@@ -146,6 +150,17 @@ void Application::initializeSIP()
     sm.initialize();
 
     m_initialized = true;
+
+#ifdef Q_OS_WINDOWS
+    if (!m_startupArguments.isEmpty()) {
+        QVariantList args;
+        for (const auto &argument : std::as_const(m_startupArguments)) {
+            args.push_back(argument);
+        }
+        m_startupArguments.clear();
+        StateManager::instance().ActivateAction("invoke", args, {});
+    }
+#endif
 }
 
 bool Application::isFirstInstance() const

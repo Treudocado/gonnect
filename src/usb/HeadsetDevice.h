@@ -61,6 +61,8 @@ public:
 
     void setUsageInfos(const QHash<UsageId, UsageInfo> &infos);
     void setTeamsUsageMapping(QHash<UsageId, quint16> teamsUsageMapping);
+    void addTeamsUsageMapping(const QHash<UsageId, quint16> &teamsUsageMapping,
+                              const QString &path);
 
     ~HeadsetDevice();
 
@@ -69,6 +71,8 @@ private:
     void setDisplayField(ReportDescriptorEnums::TeamsDisplayFieldSupport field,
                          const QString &text);
     void sendASP(quint8 cmd);
+    bool writeTeamsOutput(hid_device *device, const unsigned char *data, qsizetype length);
+    hid_device *deviceForTeamsUsage(UsageId usage) const;
 
     void send(quint8 reportId, unsigned data);
     void processEvents();
@@ -82,6 +86,8 @@ private:
     QTimer m_ignoreHookTimer;
     QHash<UsageId, UsageInfo> m_hidUsages;
     QHash<UsageId, quint16> m_teamsUsageMapping;
+    QHash<UsageId, QString> m_teamsUsagePaths;
+    QHash<QString, hid_device *> m_auxiliaryDevices;
 
     QString m_path;
     QString m_productName;

@@ -141,8 +141,43 @@ void HeadsetDeviceProxy::updateRemoteContactInfo()
         auto rci = GlobalCallState::instance().remoteContactInfo();
         bool isPhoneConference = GlobalCallState::instance().isPhoneConference();
 
-        m_device->setOtherUserName(isPhoneConference ? tr("Phone conference") : rci.displayName);
-        m_device->setOtherUserNumber(rci.phoneNumber);
+        const QString displayName = isPhoneConference ? tr("Phone conference") : rci.displayName;
+        const QString displayText = displayName.isEmpty() ? rci.phoneNumber : displayName;
+
+        const auto writeRemoteFields = [this, &displayName, &displayText, &rci]() {
+            m_device->setOtherUserName(displayName);
+            m_device->setOtherUserNumber(rci.phoneNumber);
+
+            // The Yealink WH workstation shows the CallStatus field prominently on its call
+            // screen, while the standard OtherParty fields are not rendered there by every
+            // firmware version. Mirror the resolved name (or number as fallback) there as well.
+            m_device->setCallStatus(displayText);
+        };
+
+        // On Windows the WH workstation switches to its generic "PC Softphone" screen when the
+        // telephony collection becomes active. Clear and select the call screen after that state
+        // change, write its fields and then confirm the screen without clearing it. This matches
+        // the sequence accepted by the device in the direct HID test.
+        using State = ICallState::State;
+        const auto state = GlobalCallState::instance().globalCallState();
+        auto screen = ReportDescriptorEnums::TeamsScreenSelect::NoChange;
+        if (state & State::OnHold) {
+            screen = ReportDescriptorEnums::TeamsScreenSelect::HoldCall;
+        } else if (state & (State::RingingIncoming | State::KnockingIncoming)) {
+            screen = ReportDescriptorEnums::TeamsScreenSelect::IncomingCall;
+        } else if (state & State::RingingOutgoing) {
+            screen = ReportDescriptorEnums::TeamsScreenSelect::OutgoingCall;
+        } else if (state & State::CallActive) {
+            screen = ReportDescriptorEnums::TeamsScreenSelect::InCall;
+        }
+
+        if (screen != ReportDescriptorEnums::TeamsScreenSelect::NoChange) {
+            m_device->selectScreen(screen, true);
+            writeRemoteFields();
+            m_device->selectScreen(screen);
+        } else {
+            writeRemoteFields();
+        }
     }
 }
 

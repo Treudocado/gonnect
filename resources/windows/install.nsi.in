@@ -16,7 +16,7 @@ WriteRegStr HKCU "Software\Classes\Local Settings\Software\Microsoft\Windows\She
     WriteRegStr HKCR "@APPLICATION_NAME@.${_name}" "" "@APPLICATION_NAME@ ${_name} Protocol"
     WriteRegStr HKCR "@APPLICATION_NAME@.${_name}\Shell" "" ""
     WriteRegStr HKCR "@APPLICATION_NAME@.${_name}\Shell\Open" "" ""
-    WriteRegStr HKCR "@APPLICATION_NAME@.${_name}\Shell\Open\Command" "" "$INSTDIR\bin\@APPLICATION_EXECUTABLE@.exe $\"%1$\""
+    WriteRegStr HKCR "@APPLICATION_NAME@.${_name}\Shell\Open\Command" "" "$\"$INSTDIR\bin\@APPLICATION_EXECUTABLE@.exe$\" $\"%1$\""
     WriteRegStr SHCTX "SOFTWARE\@APPLICATION_VENDOR@\@APPLICATION_NAME@\Capabilities\URLAssociations" "${_name}" "@APPLICATION_NAME@.${_name}"
 !macroend
 

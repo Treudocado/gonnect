@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QTimer>
 #include "HeadsetDeviceProxy.h"
+#include "ReportDescriptorStructs.h"
 
 class USBDevices : public QObject
 {
@@ -53,9 +54,11 @@ private:
     void refresh();
     void clearDevices();
 
-    HeadsetDevice *parseReportDescriptor(const hid_device_info *deviceInfo);
+    HeadsetDevice *parseReportDescriptor(const hid_device_info *deviceInfo,
+                                         const hid_device_info *allDeviceInfos);
     HeadsetDevice *parseReportDescriptor(const hid_device_info *deviceInfo,
                                          unsigned char *descriptor, int len);
+    QHash<UsageId, quint16> parseTeamsReportDescriptor(const hid_device_info *deviceInfo);
 
     QTimer m_refreshTicker;
     QTimer m_refreshDebouncer;

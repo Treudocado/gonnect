@@ -68,6 +68,10 @@ private:
     QTranslator m_baseTranslator;
     QTranslator m_declarativeTranslator;
 
+#ifdef Q_OS_WINDOWS
+    QStringList m_startupArguments;
+#endif
+
     bool m_initialized = false;
     bool m_isDebugRun = false;
 };
