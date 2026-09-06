@@ -331,7 +331,7 @@ void CardDAVAddressBookFeeder::onParserFinished()
 
         QNetworkReply *reply = m_webdav.get(item.path());
         connect(
-                reply, &QNetworkReply::readyRead, this,
+                reply, &QNetworkReply::finished, this,
                 [reply, cacheId, modifiedDate, this]() {
                     if (!reply) {
                         return;
@@ -344,13 +344,22 @@ void CardDAVAddressBookFeeder::onParserFinished()
                         return;
                     }
 
-                    QByteArray data = reply->readAll();
+                    const QByteArray data = reply->readAll();
+                    const QString contentType =
+                            reply->header(QNetworkRequest::ContentTypeHeader).toString();
                     reply->deleteLater();
 
-                    QMimeDatabase db;
-                    QMimeType type = db.mimeTypeForData(data);
-                    if (type.name() == "text/vcard") {
+                    const bool isVcard =
+                            contentType.startsWith("text/vcard", Qt::CaseInsensitive)
+                            || contentType.startsWith("text/x-vcard", Qt::CaseInsensitive)
+                            || data.trimmed().startsWith("BEGIN:VCARD");
+
+                    if (isVcard) {
                         processVcard(data, cacheId, modifiedDate);
+                    } else {
+                        qCWarning(lcCardDAVAddressBookFeeder)
+                                << "Ignoring CardDAV item with unexpected content type"
+                                << contentType;
                     }
                 },
                 Qt::ConnectionType::SingleShotConnection);
