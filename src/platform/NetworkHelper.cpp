@@ -83,15 +83,14 @@ QFuture<bool> NetworkHelper::isReachable(const QUrl &url)
     return QtConcurrent::run([url]() -> bool {
         QTcpSocket testSocket;
         testSocket.connectToHost(url.host(), url.port());
-        testSocket.waitForConnected(1000);
-
-        bool state = testSocket.state() == QTcpSocket::UnconnectedState;
-        testSocket.close();
+        const bool state = testSocket.waitForConnected(1000);
 
         if (!state) {
-            qCWarning(lcNetwork) << url << "is not reachable";
+            qCWarning(lcNetwork) << url << "is not reachable:" << testSocket.error()
+                                 << testSocket.errorString();
         }
 
+        testSocket.close();
         return state;
     });
 }
