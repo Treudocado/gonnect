@@ -10,3 +10,11 @@ index c4a7eff..2fb2dfd 100644
      qwebdavdirparser.h
      qwebdavitem.h
  )
+@@ -60,7 +59,6 @@ target_include_directories(QtWebDAV PUBLIC
+     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+     $<INSTALL_INTERFACE:include>
+ )
+-target_compile_definitions(QtWebDAV PRIVATE DEBUG_WEBDAV)
+ 
+ # Link Qt libraries
+ target_link_libraries(QtWebDAV PUBLIC
