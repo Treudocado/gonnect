@@ -48,7 +48,8 @@ public:
     bool isRTTEnabled() const { return m_rttEnabled; }
 
     QString call(const QString &number, const QString &contactId = "",
-                 const QString &preferredIdentity = "auto", bool silent = false);
+                 const QString &preferredIdentity = "auto", bool silent = false,
+                 const QString &contactLookupNumber = "");
     void hangup(const int callId);
     void hold(const int callId);
     void unhold(const int callId);

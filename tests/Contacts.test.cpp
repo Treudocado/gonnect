@@ -18,6 +18,26 @@ void ContactsTest::testCleanPhoneNumber()
     QCOMPARE(PhoneNumberUtil::cleanPhoneNumber("%2B49%202932%209160"), QString("+4929329160"));
 }
 
+void ContactsTest::testRemoveDialPrefix()
+{
+    QString matchedPrefix;
+
+    QCOMPARE(PhoneNumberUtil::removeDialPrefix("*125#+49123456789", { "*125#" },
+                                               &matchedPrefix),
+             QString("+49123456789"));
+    QCOMPARE(matchedPrefix, QString("*125#"));
+
+    // Prefer the longest configured prefix if multiple prefixes overlap.
+    QCOMPARE(PhoneNumberUtil::removeDialPrefix("*125#+49123456789", { "*1", "*125#" },
+                                               &matchedPrefix),
+             QString("+49123456789"));
+    QCOMPARE(matchedPrefix, QString("*125#"));
+
+    QCOMPARE(PhoneNumberUtil::removeDialPrefix("+49123456789", { "*125#" }, &matchedPrefix),
+             QString("+49123456789"));
+    QVERIFY(matchedPrefix.isEmpty());
+}
+
 void ContactsTest::testLevenshteinDistance()
 {
     QCOMPARE(FuzzyCompare::levenshteinDistance("", ""), 0);

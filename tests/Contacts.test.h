@@ -10,6 +10,7 @@ public:
 
 private slots:
     void testCleanPhoneNumber();
+    void testRemoveDialPrefix();
 
     void testLevenshteinDistance();
     void testJaroWinklerDistance();

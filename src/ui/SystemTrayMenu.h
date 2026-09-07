@@ -6,6 +6,7 @@
 
 #include "SIPBuddy.h"
 #include "AppSettings.h"
+#include "PhoneNumberUtil.h"
 
 struct NumberStat;
 
@@ -43,6 +44,7 @@ private:
     struct CallEntry
     {
         QString remoteUri;
+        ContactInfo contactInfo;
         bool isFinished = false;
         bool isEstablished = false;
         bool isEarlyCallState = false;

@@ -21,6 +21,7 @@
 #include "AvatarManager.h"
 #include "GlobalCallState.h"
 #include "ErrorBus.h"
+#include "AddressBook.h"
 
 #include <pjsua-lib/pjsua.h>
 #include <pjsua-lib/pjsua_internal.h>
@@ -32,12 +33,14 @@ using namespace std::chrono_literals;
 const QChar UnicodeBel(0x0007);
 const QChar UnicodeBackspace(0x0008);
 
-SIPCall::SIPCall(SIPAccount *account, int callId, const QString &contactId, bool silent)
+SIPCall::SIPCall(SIPAccount *account, int callId, const QString &contactId, bool silent,
+                 const QString &contactLookupSipUrl)
     : ICallState(account),
       pj::Call(*account, callId),
       m_account(account),
       m_isSilent(silent),
-      m_contactId(contactId)
+      m_contactId(contactId),
+      m_contactLookupSipUrl(contactLookupSipUrl)
 {
     auto &sipCallManager = SIPCallManager::instance();
     sipCallManager.addCall(this);
@@ -683,12 +686,23 @@ void SIPCall::setContactInfo(const QString &sipUrl, bool isIncoming)
     if (m_sipUrl != sipUrl) {
         m_sipUrl = sipUrl;
 
+        const QString contactSipUrl =
+                !isIncoming && !m_contactLookupSipUrl.isEmpty() ? m_contactLookupSipUrl : sipUrl;
+
         if (m_historyItem && m_wasEstablished) {
             m_historyItem->endCall();
         }
 
-        m_contactInfo = PhoneNumberUtil::instance().contactInfoBySipUrl(sipUrl);
-        m_isEmergencyCall = PhoneNumberUtil::isEmergencyCallUrl(sipUrl);
+        m_contactInfo = PhoneNumberUtil::instance().contactInfoBySipUrl(contactSipUrl);
+
+        if (!m_contactId.isEmpty()) {
+            if (auto *selectedContact = AddressBook::instance().lookupByContactId(m_contactId)) {
+                m_contactInfo.contact = selectedContact;
+                m_contactInfo.displayName = selectedContact->name();
+            }
+        }
+
+        m_isEmergencyCall = PhoneNumberUtil::isEmergencyCallUrl(contactSipUrl);
         m_contactId = m_contactInfo.contact ? m_contactInfo.contact->id() : "";
 
         if (!m_contactInfo.isAnonymous) {
@@ -706,9 +720,9 @@ void SIPCall::setContactInfo(const QString &sipUrl, bool isIncoming)
             historyType |= Type::Outgoing;
         }
 
-        m_historyItem = CallHistory::instance().addHistoryItem(historyType, m_account->id(), sipUrl,
-                                                               m_contactId,
-                                                               m_contactInfo.isSipSubscriptable);
+        m_historyItem = CallHistory::instance().addHistoryItem(
+                historyType, m_account->id(), contactSipUrl, m_contactId,
+                m_contactInfo.isSipSubscriptable);
 
         Q_EMIT contactChanged();
     }

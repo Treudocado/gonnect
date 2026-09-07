@@ -21,7 +21,8 @@ class SIPCall : public ICallState, public pj::Call
 
 public:
     explicit SIPCall(SIPAccount *account, int callId = PJSUA_INVALID_ID,
-                     const QString &contactId = "", bool silent = false);
+                     const QString &contactId = "", bool silent = false,
+                     const QString &contactLookupSipUrl = "");
     ~SIPCall();
 
     void onCallState(pj::OnCallStateParam &prm) override;
@@ -184,6 +185,7 @@ private:
 
     QString m_sipUrl;
     QString m_contactId;
+    QString m_contactLookupSipUrl;
     QString m_notificationRef;
     QString m_postTask;
 

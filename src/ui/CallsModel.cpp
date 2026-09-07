@@ -302,8 +302,11 @@ void CallsModel::updateCalls()
         callInfo->isIncoming = call->isIncoming();
         callInfo->isBlocked = call->isBlocked();
         callInfo->isHolding = call->isHolding();
-        callInfo->contactInfo =
-                PhoneNumberUtil::instance().contactInfoBySipUrl(callInfo->remoteUri);
+        callInfo->contactInfo = call->remoteContactInfo();
+        if (callInfo->contactInfo.sipUrl.isEmpty()) {
+            callInfo->contactInfo =
+                    PhoneNumberUtil::instance().contactInfoBySipUrl(callInfo->remoteUri);
+        }
         callInfo->hasCapabilityJitsi = call->hasCapability("jitsi") && call->isEstablished();
         callInfo->hasMetadata = call->hasMetadata();
 

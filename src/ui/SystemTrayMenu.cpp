@@ -71,6 +71,8 @@ SystemTrayMenu::SystemTrayMenu(QObject *parent) : QObject{ parent }
             &SystemTrayMenu::updateCalls);
     connect(&SIPCallManager::instance(), &SIPCallManager::isBlockedChanged, this,
             &SystemTrayMenu::updateCalls);
+    connect(&SIPCallManager::instance(), &SIPCallManager::callContactChanged, this,
+            &SystemTrayMenu::updateCalls);
     connect(&TogglerManager::instance(), &TogglerManager::togglerChanged, this,
             &SystemTrayMenu::updateTogglers);
     connect(&TogglerManager::instance(), &TogglerManager::togglerActiveChanged, this,
@@ -243,8 +245,10 @@ void SystemTrayMenu::updateCalls()
 
         SystemTrayMenu::CallEntry *entry = findCallEntry(remoteUri);
         if (!entry) {
-            m_callEntries.append({ remoteUri });
+            m_callEntries.append({ remoteUri, call->remoteContactInfo() });
             entry = &m_callEntries.last();
+        } else if (!call->remoteContactInfo().sipUrl.isEmpty()) {
+            entry->contactInfo = call->remoteContactInfo();
         }
 
         entry->isEstablished = call->isEstablished();
@@ -307,8 +311,9 @@ void SystemTrayMenu::updateCalls()
                     continue;
                 }
 
-                const auto callInfo =
-                        PhoneNumberUtil::instance().contactInfoBySipUrl(callEntry.remoteUri);
+                const auto callInfo = !callEntry.contactInfo.sipUrl.isEmpty()
+                        ? callEntry.contactInfo
+                        : PhoneNumberUtil::instance().contactInfoBySipUrl(callEntry.remoteUri);
                 QString contactLabel;
 
                 if (callInfo.contact) {

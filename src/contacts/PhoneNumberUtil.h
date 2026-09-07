@@ -43,6 +43,8 @@ public:
     ContactInfo contactInfoBySipUrl(const QString &sipUrl);
 
     static QString cleanPhoneNumber(const QString &number);
+    static QString removeDialPrefix(const QString &number, const QStringList &prefixes,
+                                    QString *matchedPrefix = nullptr);
     static QString clearInternationalChars(const QString &str);
     static bool isSipUri(const QString &str);
     static QString numberFromSipUrl(const QString &sipUrl);

@@ -53,6 +53,25 @@ QString PhoneNumberUtil::cleanPhoneNumber(const QString &number)
     return result;
 }
 
+QString PhoneNumberUtil::removeDialPrefix(const QString &number, const QStringList &prefixes,
+                                          QString *matchedPrefix)
+{
+    QString longestMatch;
+
+    for (const auto &prefix : prefixes) {
+        if (!prefix.isEmpty() && number.startsWith(prefix)
+            && prefix.length() > longestMatch.length()) {
+            longestMatch = prefix;
+        }
+    }
+
+    if (matchedPrefix) {
+        *matchedPrefix = longestMatch;
+    }
+
+    return longestMatch.isEmpty() ? number : number.sliced(longestMatch.length());
+}
+
 QDebug operator<<(QDebug debug, const ContactInfo &contactInfo)
 {
     QDebugStateSaver saver(debug);

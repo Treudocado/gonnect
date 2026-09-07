@@ -477,20 +477,25 @@ void SIPAccount::finalizeInitialization()
 }
 
 QString SIPAccount::call(const QString &number, const QString &contactId,
-                         const QString &preferredIdentity, bool silent)
+                         const QString &preferredIdentity, bool silent,
+                         const QString &contactLookupNumber)
 {
     QString sipUrl = toSipUri(number);
+    const QString contactLookupSipUrl =
+            contactLookupNumber.isEmpty() ? QString() : toSipUri(contactLookupNumber);
 
     qCInfo(lcSIPAccount) << "DIAL" << sipUrl;
 
     // Create call
-    SIPCall *call = new SIPCall(this, PJSUA_INVALID_ID, contactId, silent);
+    SIPCall *call =
+            new SIPCall(this, PJSUA_INVALID_ID, contactId, silent, contactLookupSipUrl);
 
     pj::CallOpParam prm(true);
     prm.opt.audioCount = 1;
     prm.opt.videoCount = 0;
 
-    generatePreferredIdentityHeader(number, preferredIdentity, prm);
+    generatePreferredIdentityHeader(
+            contactLookupNumber.isEmpty() ? number : contactLookupNumber, preferredIdentity, prm);
 
     try {
         call->call(sipUrl, prm);

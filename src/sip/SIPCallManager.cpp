@@ -16,6 +16,7 @@
 #include "USBDevices.h"
 #include "HeadsetDeviceProxy.h"
 #include "AddressBook.h"
+#include "ReadOnlyConfdSettings.h"
 #include "GlobalCallState.h"
 #include "Application.h"
 
@@ -324,12 +325,99 @@ QString SIPCallManager::call(const QString &accountId, const QString &number,
 {
     initBridge();
 
+    auto account = SIPAccountManager::instance().getAccount(accountId);
+    if (!account) {
+        qCCritical(lcSIPCallManager) << "not starting call - unknown account:" << accountId;
+        return "";
+    }
+
+    ReadOnlyConfdSettings settings;
+    QHash<QString, QString> dialPrefixesBySource;
+    QStringList configuredDialPrefixes;
+
+    for (const auto &sourceInfo : AddressBook::instance().sortedSourceInfos()) {
+        if (sourceInfo.configId.isEmpty() || dialPrefixesBySource.contains(sourceInfo.configId)) {
+            continue;
+        }
+
+        settings.beginGroup(sourceInfo.configId);
+        const QString configuredPrefix =
+                settings.value("outgoingDialPrefix", "").toString().trimmed();
+        settings.endGroup();
+
+        const QString cleanPrefix = PhoneNumberUtil::cleanPhoneNumber(configuredPrefix);
+        if (cleanPrefix.isEmpty()) {
+            continue;
+        }
+
+        if (cleanPrefix != configuredPrefix) {
+            qCWarning(lcSIPCallManager)
+                    << "ignoring invalid outgoingDialPrefix for address book"
+                    << sourceInfo.configId << configuredPrefix;
+            continue;
+        }
+
+        dialPrefixesBySource.insert(sourceInfo.configId, cleanPrefix);
+        configuredDialPrefixes.push_back(cleanPrefix);
+    }
+
+    const QString rawPhoneNumber = PhoneNumberUtil::isSipUri(number)
+            ? PhoneNumberUtil::numberFromSipUrl(number)
+            : PhoneNumberUtil::cleanPhoneNumber(number);
+
+    QString matchedDialPrefix;
+    const QString contactLookupNumber = PhoneNumberUtil::removeDialPrefix(
+            rawPhoneNumber, configuredDialPrefixes, &matchedDialPrefix);
+
+    auto &addressBook = AddressBook::instance();
+    Contact *contact = contactId.isEmpty() ? nullptr : addressBook.lookupByContactId(contactId);
+    if (!contact) {
+        contact = addressBook.lookupByNumber(contactLookupNumber);
+    }
+
+    QString routedNumber = number;
+    QString routedContactId = contactId;
+    QString routedContactLookupNumber;
+
+    if (contact && routedContactId.isEmpty()) {
+        routedContactId = contact->id();
+    }
+
+    if (!matchedDialPrefix.isEmpty()) {
+        // Preserve a manually supplied/configured routing prefix for signaling, but resolve
+        // display name, number and call history against the number behind it.
+        routedContactLookupNumber = contactLookupNumber;
+    } else if (contact) {
+        const QString dialPrefix =
+                dialPrefixesBySource.value(contact->contactSourceInfo().configId);
+        const bool isServiceCode = contactLookupNumber.startsWith('*')
+                || contactLookupNumber.startsWith('#');
+        const bool isEmergencyNumber = contactLookupNumber == "110"
+                || contactLookupNumber == "112"
+                || PhoneNumberUtil::isEmergencyCallUrl(account->toSipUri(contactLookupNumber));
+
+        if (!dialPrefix.isEmpty() && !contactLookupNumber.isEmpty() && !isServiceCode
+            && !isEmergencyNumber) {
+            routedNumber = dialPrefix + contactLookupNumber;
+            routedContactLookupNumber = contactLookupNumber;
+            routedContactId = contact->id();
+
+            qCInfo(lcSIPCallManager)
+                    << "applying outgoing dial prefix from address book"
+                    << contact->contactSourceInfo().displayName;
+        }
+    }
+
+    const QString routedPhoneNumber = PhoneNumberUtil::isSipUri(routedNumber)
+            ? PhoneNumberUtil::numberFromSipUrl(routedNumber)
+            : PhoneNumberUtil::cleanPhoneNumber(routedNumber);
+
     // Check if there is already a call for that target number
     for (auto call : std::as_const(m_calls)) {
         const auto remoteUri = call->sipUrl();
         auto callRemoteNumber = PhoneNumberUtil::numberFromSipUrl(remoteUri);
 
-        if (number == callRemoteNumber) {
+        if (routedPhoneNumber == callRemoteNumber) {
             qCInfo(lcSIPCallManager)
                     << "skipping additional call to already connected URI" << remoteUri;
             return "";
@@ -341,14 +429,8 @@ QString SIPCallManager::call(const QString &accountId, const QString &number,
         holdAllCalls();
     }
 
-    auto account = SIPAccountManager::instance().getAccount(accountId);
-
-    if (account) {
-        return account->call(number, contactId, preferredIdentity, silent);
-    }
-
-    qCCritical(lcSIPCallManager) << "not starting call - unknown account:" << accountId;
-    return "";
+    return account->call(routedNumber, routedContactId, preferredIdentity, silent,
+                         routedContactLookupNumber);
 }
 
 QStringList SIPCallManager::callIds() const
@@ -820,7 +902,8 @@ void SIPCallManager::addCall(SIPCall *call)
         connect(n, &Notification::actionInvoked, this,
                 [c, number, account, ref](QString, QVariantList) {
                     if (account) {
-                        account->call(number, c ? c->id() : "");
+                        SIPCallManager::instance().call(account->id(), number,
+                                                        c ? c->id() : "");
                     }
 
                     NotificationManager::instance().remove(ref);
