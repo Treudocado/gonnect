@@ -50,9 +50,19 @@ try {
         -OutlookAddInRoot $smokeTestOutlookRoot
 
     $classKey = Join-Path $smokeTestClassesRoot "CLSID\$smokeTestClassId"
+    $inprocKey = Join-Path $classKey 'InprocServer32'
     $addInKey = Join-Path $smokeTestOutlookRoot $smokeTestProgId
     if ((Get-Item -Path $classKey).GetValue('') -ne 'GOnnect Outlook Add-in') {
         throw 'Der Installations-Smoketest konnte die COM-Registrierung nicht bestätigen.'
+    }
+    $inprocProperties = Get-ItemProperty -Path $inprocKey
+    if ((Get-Item -Path $inprocKey).GetValue('') -ne 'mscoree.dll' -or
+        $inprocProperties.Class -ne 'GOnnect.OutlookAddIn.Connect' -or
+        $inprocProperties.Assembly -notlike 'GOnnect.OutlookAddIn,*' -or
+        $inprocProperties.RuntimeVersion -ne 'v4.0.30319' -or
+        $inprocProperties.CodeBase -notlike 'file:///*GOnnect.OutlookAddIn.dll' -or
+        $inprocProperties.ThreadingModel -ne 'Both') {
+        throw 'Der Installations-Smoketest hat unvollständige COM-Werte gefunden.'
     }
     if ((Get-ItemPropertyValue -Path $addInKey -Name 'LoadBehavior') -ne 3) {
         throw 'Der Installations-Smoketest konnte die Outlook-Registrierung nicht bestätigen.'

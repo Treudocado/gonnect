@@ -45,7 +45,9 @@ $runtimeVersion = 'v4.0.30319'
 function New-RegistryKey {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    New-Item -Path $Path -Force | Out-Null
+    if (-not (Test-Path -Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
 }
 
 function Set-DefaultRegistryValue {
