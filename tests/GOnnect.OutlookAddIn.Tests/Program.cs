@@ -1,17 +1,26 @@
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace GOnnect.OutlookAddIn.Tests
 {
     internal static class Program
     {
-        private static int Main()
+        private static int Main(string[] args)
         {
             try
             {
+                if (args.Length == 1 && args[0] == "--com-activation")
+                {
+                    TestComActivation();
+                    Console.WriteLine("COM activation test passed.");
+                    return 0;
+                }
+
                 TestPhoneNumberSelection();
                 TestRibbonXmlEscaping();
                 TestTelephoneUri();
+                TestComContractMetadata();
                 Console.WriteLine("All tests passed.");
                 return 0;
             }
@@ -19,6 +28,40 @@ namespace GOnnect.OutlookAddIn.Tests
             {
                 Console.Error.WriteLine(exception.Message);
                 return 1;
+            }
+        }
+
+        private static void TestComActivation()
+        {
+            var comType = Type.GetTypeFromProgID(Connect.ProgrammaticId, true);
+            var instance = Activator.CreateInstance(comType);
+
+            try
+            {
+                Assert(Marshal.IsComObject(instance),
+                    "COM activation did not return a COM proxy.");
+
+                var extensibility = (IDTExtensibility2)instance;
+                Array custom = new object[0];
+                extensibility.OnConnection(
+                    new ComTestApplication(),
+                    ExtConnectMode.Startup,
+                    instance,
+                    ref custom);
+
+                var ribbon = (IRibbonExtensibility)instance;
+                var xml = ribbon.GetCustomUI("Microsoft.Outlook.Explorer");
+                Assert(xml != null && xml.Contains("GOnnectDialContactMenu"),
+                    "The COM Ribbon callback returned no Outlook menu.");
+
+                extensibility.OnDisconnection(ExtDisconnectMode.UserClosed, ref custom);
+            }
+            finally
+            {
+                if (instance != null && Marshal.IsComObject(instance))
+                {
+                    Marshal.FinalReleaseComObject(instance);
+                }
             }
         }
 
@@ -59,6 +102,43 @@ namespace GOnnect.OutlookAddIn.Tests
             Assert(uri == "tel:%2B49%2040%20123%23", "Telephone URI is wrong: " + uri);
         }
 
+        private static void TestComContractMetadata()
+        {
+            AssertDualInterface(typeof(IDTExtensibility2));
+            AssertDualInterface(typeof(IRibbonExtensibility));
+
+            AssertVariantSafeArray("OnConnection", 3);
+            AssertVariantSafeArray("OnDisconnection", 1);
+            AssertVariantSafeArray("OnAddInsUpdate", 0);
+            AssertVariantSafeArray("OnStartupComplete", 0);
+            AssertVariantSafeArray("OnBeginShutdown", 0);
+        }
+
+        private static void AssertVariantSafeArray(string methodName, int parameterIndex)
+        {
+            var method = typeof(IDTExtensibility2).GetMethod(methodName);
+            Assert(method != null, methodName + " COM method is missing.");
+            var customParameter = method.GetParameters()[parameterIndex];
+            var marshalAs = (MarshalAsAttribute)Attribute.GetCustomAttribute(
+                customParameter,
+                typeof(MarshalAsAttribute));
+
+            Assert(customParameter.IsIn, "The custom SAFEARRAY must be marked as input.");
+            Assert(marshalAs != null && marshalAs.Value == UnmanagedType.SafeArray,
+                "The custom parameter must be marshaled as SAFEARRAY.");
+            Assert(marshalAs.SafeArraySubType == VarEnum.VT_VARIANT,
+                "The custom SAFEARRAY must contain VARIANT values.");
+        }
+
+        private static void AssertDualInterface(Type interfaceType)
+        {
+            var attribute = (InterfaceTypeAttribute)Attribute.GetCustomAttribute(
+                interfaceType,
+                typeof(InterfaceTypeAttribute));
+            Assert(attribute != null && attribute.Value == ComInterfaceType.InterfaceIsDual,
+                interfaceType.Name + " must be declared as a dual COM interface.");
+        }
+
         private static void Assert(bool condition, string message)
         {
             if (!condition)
@@ -85,5 +165,10 @@ namespace GOnnect.OutlookAddIn.Tests
             public string ISDNNumber { get; set; }
         }
     }
-}
 
+    [ComVisible(true)]
+    [ClassInterface(ClassInterfaceType.AutoDispatch)]
+    public sealed class ComTestApplication
+    {
+    }
+}

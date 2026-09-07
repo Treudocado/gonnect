@@ -29,7 +29,12 @@ if ($LASTEXITCODE -ne 0) {
 
 $smokeTestId = [Guid]::NewGuid().ToString('N')
 $smokeTestRoot = "HKCU:\Software\GOnnectOutlookAddInTests\$smokeTestId"
-$smokeTestClassesRoot = Join-Path $smokeTestRoot 'Classes'
+$runComActivationTest = $env:GITHUB_ACTIONS -eq 'true'
+$smokeTestClassesRoot = if ($runComActivationTest) {
+    'HKCU:\Software\Classes'
+} else {
+    Join-Path $smokeTestRoot 'Classes'
+}
 $smokeTestOutlookRoot = Join-Path $smokeTestRoot 'OutlookAddins'
 $smokeTestDirectory = Join-Path $env:TEMP "GOnnectOutlookAddInTests\$smokeTestId"
 $smokeTestSource = Join-Path $smokeTestDirectory 'Source'
@@ -68,6 +73,13 @@ try {
         throw 'Der Installations-Smoketest konnte die Outlook-Registrierung nicht bestätigen.'
     }
 
+    if ($runComActivationTest) {
+        & $testExecutable --com-activation
+        if ($LASTEXITCODE -ne 0) {
+            throw "Der COM-Aktivierungstest ist mit Exitcode $LASTEXITCODE fehlgeschlagen."
+        }
+    }
+
     & (Join-Path $smokeTestSource 'uninstall.ps1') `
         -InstallDirectory $smokeTestInstall `
         -ClassesRoot $smokeTestClassesRoot `
@@ -78,6 +90,16 @@ try {
     }
 }
 finally {
+    $smokeTestRegistryKeys = @(
+        (Join-Path $smokeTestOutlookRoot $smokeTestProgId),
+        (Join-Path $smokeTestClassesRoot $smokeTestProgId),
+        (Join-Path $smokeTestClassesRoot "CLSID\$smokeTestClassId")
+    )
+    foreach ($registryKey in $smokeTestRegistryKeys) {
+        if (Test-Path -Path $registryKey) {
+            Remove-Item -Path $registryKey -Recurse -Force
+        }
+    }
     if (Test-Path -Path $smokeTestRoot) {
         Remove-Item -Path $smokeTestRoot -Recurse -Force
     }
