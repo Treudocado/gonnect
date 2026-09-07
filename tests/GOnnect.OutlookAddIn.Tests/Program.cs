@@ -10,13 +10,6 @@ namespace GOnnect.OutlookAddIn.Tests
         {
             try
             {
-                if (args.Length == 1 && args[0] == "--com-activation")
-                {
-                    TestComActivation();
-                    Console.WriteLine("COM activation test passed.");
-                    return 0;
-                }
-
                 TestPhoneNumberSelection();
                 TestRibbonXmlEscaping();
                 TestTelephoneUri();
@@ -28,40 +21,6 @@ namespace GOnnect.OutlookAddIn.Tests
             {
                 Console.Error.WriteLine(exception.Message);
                 return 1;
-            }
-        }
-
-        private static void TestComActivation()
-        {
-            var comType = Type.GetTypeFromProgID(Connect.ProgrammaticId, true);
-            var instance = Activator.CreateInstance(comType);
-
-            try
-            {
-                Assert(Marshal.IsComObject(instance),
-                    "COM activation did not return a COM proxy.");
-
-                var extensibility = (IDTExtensibility2)instance;
-                Array custom = new object[0];
-                extensibility.OnConnection(
-                    new ComTestApplication(),
-                    ExtConnectMode.Startup,
-                    instance,
-                    ref custom);
-
-                var ribbon = (IRibbonExtensibility)instance;
-                var xml = ribbon.GetCustomUI("Microsoft.Outlook.Explorer");
-                Assert(xml != null && xml.Contains("GOnnectDialContactMenu"),
-                    "The COM Ribbon callback returned no Outlook menu.");
-
-                extensibility.OnDisconnection(ExtDisconnectMode.UserClosed, ref custom);
-            }
-            finally
-            {
-                if (instance != null && Marshal.IsComObject(instance))
-                {
-                    Marshal.FinalReleaseComObject(instance);
-                }
             }
         }
 
@@ -166,9 +125,4 @@ namespace GOnnect.OutlookAddIn.Tests
         }
     }
 
-    [ComVisible(true)]
-    [ClassInterface(ClassInterfaceType.AutoDispatch)]
-    public sealed class ComTestApplication
-    {
-    }
 }

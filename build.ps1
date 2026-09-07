@@ -22,6 +22,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $testExecutable = Join-Path $projectRoot 'tests\GOnnect.OutlookAddIn.Tests\bin\Release\GOnnect.OutlookAddIn.Tests.exe'
+$comSmokeExecutable = Join-Path $projectRoot 'tests\GOnnect.OutlookAddIn.ComSmoke\bin\Release\GOnnect.OutlookAddIn.ComSmoke.exe'
 & $testExecutable
 if ($LASTEXITCODE -ne 0) {
     throw "Die Tests sind mit Exitcode $LASTEXITCODE fehlgeschlagen."
@@ -74,7 +75,7 @@ try {
     }
 
     if ($runComActivationTest) {
-        & $testExecutable --com-activation
+        & $comSmokeExecutable
         if ($LASTEXITCODE -ne 0) {
             throw "Der COM-Aktivierungstest ist mit Exitcode $LASTEXITCODE fehlgeschlagen."
         }
