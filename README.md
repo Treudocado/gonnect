@@ -1,265 +1,51 @@
-<p align="center">
-  <img src="media/logo.png" width="410" height="509" alt="GOnnect">
-</p>
+# GOnnect Outlook Add-in
 
-<p align="center">
-  <a href="https://docs.gonicus.de/gonnect">Documentation</a> |
-  <a href="https://github.com/gonicus/gonnect/issues">Issues</a> |
-  <a href="https://flathub.org/apps/de.gonicus.gonnect">Install</a>
-</p>
+Dieses Add-in ergänzt im klassischen 64-Bit-Outlook für Microsoft 365 das Kontextmenü von
+Kontakten um **Mit GOnnect anrufen**. Das Untermenü enthält nur die Rufnummern, die im
+markierten Kontakt tatsächlich vorhanden sind.
 
----
-[![GOnnect workflow](https://github.com/gonicus/gonnect/actions/workflows/gonnect.yml/badge.svg)](https://github.com/gonicus/gonnect/actions/workflows/gonnect.yml) [![Flathub Version](https://img.shields.io/flathub/v/de.gonicus.gonnect)](https://flathub.org/apps/de.gonicus.gonnect) [![Translations](https://hosted.weblate.org/widget/gonnect/svg-badge.svg)](https://hosted.weblate.org/engage/gonnect/)
+Beim Anklicken wird die Rufnummer über den registrierten `tel:`-Protokollhandler an GOnnect
+übergeben. Die Telefonie selbst, die Kontaktsuche und ein gegebenenfalls konfigurierter
+`outgoingDialPrefix` bleiben vollständig Aufgabe von GOnnect.
 
-# Overview
+## Unterstützte Umgebung
 
-_GOnnect_ is a simple, easy to use UC client, designed for
-Linux / _Flatpak_ based installations and Microsoft Windows.
-It is designed to integrate seamlessly into modern desktop
-environments.
+- Klassisches Microsoft Outlook für Microsoft 365
+- Getestetes Ziel: Version 2608, Build 16.0.20326.20072, 64 Bit
+- Windows mit .NET Framework 4.8
+- GOnnect als Standardanwendung für `tel:`
 
-![Overview](media/main-screen.png)
+Das neue Outlook wird nicht unterstützt, da es keine klassischen COM-Add-ins lädt.
 
-What is special about _GOnnect_ is that is meant to be provisioned. For
-that reason it has no configuration wizard or settings dialog and
-requires a working configuration file in place.
+## Installation
 
-Here's a short feature list:
+1. Outlook vollständig schließen.
+2. Das ZIP-Archiv in einen beliebigen Ordner entpacken.
+3. `install.cmd` doppelt anklicken.
+4. Outlook wieder starten.
 
- * Call forwarding
- * Conference calls with three parties
- * Real-Time Text (RTT) over SIP
- * Busy state for supported sources
- * Configurable busy on active call
- * Address sources
-   * LDAP
-   * CardDAV
-   * CSV
-   * GNOME Contacts / Evolution Data Service
-   * Microsoft 365 Contacts (on Windows)
- * Configurable identities for outgoing calls
- * Configurable Togglers (i.e. for call queues, CFNL, etc.)
- * **Jitsi Meet Integration: Upgrade call to Videoconference**
- * Calendar sources for upcoming conferences
-   * CalDAV
-   * GNOME Calendar / Evolution Data Service
-   * Microsoft 365 Calendar (on Windows)
- * **Support for various hardware headsets (i.e. Yealink, Jabra)**
- * Support for various busylights
- * Custom audio device profiles or managed by your system
- * [mpris](https://specifications.freedesktop.org/mpris-spec/latest/) for
-   stopping other audio sources on incoming calls
- * System Tray integration for most common functions / favorites / most frequent
-   calls
- * GNOME Search-Provider support
- * KRunner search plugin (requires next generation flatpak)
- * Desktop Actions / Autostart
- * Global Keyboard Shortcuts (if supported by your Desktop environment)
- * Keeping the screensaver from droppin' in while on the phone
- * Mime-Type registration for `tel:` / `sip:` URLs
- * Light/Dark mode
+Die Installation erfolgt ausschließlich für den aktuellen Windows-Benutzer unter
+`%LOCALAPPDATA%\GOnnect\OutlookAddIn` und benötigt keine Administratorrechte.
 
-# Headsets known to be supported
+## Verwendung
 
-GOnnect supports some generic USB headset features to make your calls easier.
-Here is the current list in combination
+Einen einzelnen Kontakt markieren und mit der rechten Maustaste anklicken. Unter
+**Mit GOnnect anrufen** die gewünschte Rufnummer auswählen. GOnnect wird über `tel:`
+angesprochen und beginnt den Anruf.
 
-| Feature                                  | Key |
-| ---------------------------------------- | --- |
-| Answering the call via handset off-hook  | A   |
-| End call by hanging up the handset       | E   |
-| Mute control                             | M   |
-| LED state visualization                  | S   |
-| Busy light support (additional hardware) | L   |
-| Open GOnnect via handset off-hook        | O   |
-| Ringing via headset base station         | R   |
-| Headset screen support                   | D   |
+Der vorhandene Outlook-Menüpunkt **Anruf** verwendet weiterhin TAPI und wird durch das Add-in
+nicht verändert.
 
-In theory, Teams certified Headsets may work, but you never know... Here is a
-list of tested headsets. Please feel free to report any working combinations to
-make this list more complete by opening an [issue](https://github.com/gonicus/gonnect/issues).
+## Deinstallation
 
-| Manufacturer     | Model               | Features        |
-| ---------------- | ------------------- | --------------- |
-| Jabra            | EVOLVE LINK         | AEMSO           |
-| Plantronics/Poly | Voyager Focus BT600 | AEMSO           |
-| Poly             | Blackwire C5220     | AEMSO           |
-| Sennheiser       | SC 660 ANC USB      | AEM             |
-| Yealink          | WH62                | AEMSLOR         |
-| Yealink          | WH66/WH67           | AEMSLORD        |
+1. Outlook vollständig schließen.
+2. `%LOCALAPPDATA%\GOnnect\OutlookAddIn\uninstall.cmd` ausführen.
 
-The linux kernel currently has no concept of call flow, which (depending on the headset you
-have) may lead to problems with microphone mute loops: the headset keeps toggling mute,
-unmute, mute, etc. As GOnnect can take care of this, switching of the direct alsa feedback
-to the sound system mute state may help:
+## Technische Hinweise
 
-```
-cat > /etc/udev/hwdb.d/90-usb-no-mute.hwdb <<EOF
-evdev:input:b0003*
- KEYBOARD_KEY_b002f=reserved
-EOF
+- COM-Klasse: `GOnnect.OutlookAddIn`
+- CLSID: `{A3D2629C-32F1-48E7-BD24-AC02E70427E8}`
+- Zielplattform: x64 / .NET Framework 4.8
+- Outlook-Kontextmenüs: `ContextMenuContactItem` und `ContextMenuFlaggedContactItem`
+- Das Add-in enthält keine SIP-Zugangsdaten und kommuniziert nicht selbst mit der FRITZ!Box.
 
-systemd-hwdb update
-udevadm trigger
-```
-
-# Busylights known to be supported
-
-| Manufacturer | Model              |
-| ------------ | ------------------ |
-| kuando       | Busylight UC Omega |
-| Luxafor      | Flag               |
-| Logitech     | Litra Beam LX      |
-| Blinkstick   | All models         |
-
-
-# Automatic video light switching
-
-| Manufacturer | Model              |
-| ------------ | ------------------ |
-| Logitech     | Litra Beam LX      |
-| Logitech     | Litra Glow         |
-
-# Installing _GOnnect_
-
-_GOnnect_ is distributed via Flathub only. To install it, either visit the
-[Flathub page](https://flathub.org/apps/de.gonicus.gonnect), search for _GOnnect_ in _GNOME-Software_
-or KDE's _discover_.
-
-After you have installed _GOnnect_, either adjust the provided
-`docs/modules/ROOT/examples/sample.conf` and place it in `~/.var/app/de.gonicus.gonnect/config/gonnect/99-user.conf`,
-or head over to [the documentation](https://github.com/gonicus/gonnect/wiki).
-
-# Non-goals
-
-Like every other software, _GOnnect_ cannot be an all-purpose silver bullet. Here are some
-deliberately chosen non-goals, so things that will not be implemented into _GOnnect_:
-
-* **Full SIP configuration**: Most SIP clients provide a plethora of options to configure
-every single bit of the SIP connection. That includes many audio codecs of which most are
-obsolete or rarely used. _GOnnect_ strives to be simple and therefore allows only the most
-common and important options. This will exclude some exotic ones.
-* **PIM/contact management**: This should be done via dedicated PIM services as opposed to
-implementing the nth place to store contacts.
-* **Speech-to-text transcription and audio recording**: Apart from some technical insufficiencies
-this bears some critical questions about data privacy.
-* **Conferences with more than three participants**: Ad-hoc conferences are implemented such
-that the initializing participant will be a router for the audio streams of the others. In
-our experience, having more than three endpoints will produce bad sound quality, delays and
-other performance issues. Bigger conferences would require a specific configuration on the
-SIP server or another platform (like [Jitsi Meet](https://meet.jit.si/)).
-
-# Translations
-
-We are using [Weblate](https://hosted.weblate.org/engage/gonnect/) to translate GOnnect
-in various languages. This hosted service is provided us for free as GOnnect is an Open Source
-project. Many thanks to the Weblate team for this!.
-
-Everyone is invited to contribute to the translations. Just head over to our
-[Weblate project](https://hosted.weblate.org/engage/gonnect/) and start translating.
-If you miss a language request a new one at Weblate or
-[create an issue at GitHub](https://github.com/gonicus/gonnect/issues/new/choose).
-
-# Development
-
-_GOnnect_ is based on Qt / C++ and requires a set of libraries to be buildable.
-There are may ways to achieve a build, but we'll describe just one of them in
-the following paragraphs.
-
-## Prerequisites
-
-As we use immutable desktops here at [GONICUS](https://www.gonicus.de) and
-development takes place in a dedicated
-[distrobox](https://github.com/89luca89/distrobox) for each project, we also use
-this procedure for _GOnnect_.
-
-Make sure to have _distrobox_ installed. On _Fedora_ for example run:
-
-```bash
-sudo dnf install distrobox
-```
-
-After _distrobox_ is installed, create the _distrobox_ for _GOnnect_ development
-by running
-
-```bash
-distrobox assemble create --name gonnect
-```
-
-in the directory of your _GOnnect_ checkout.
-
-
-## Building
-
-### Unix based systems
-
-Assuming you're using the documented _distrobox_ approach above, enter the _distrobox_
-and start the ordinary _CMake_ build:
-
-```bash
-distrobox enter gonnect
-cd <to where you've cloned this repository>
-conan config install resources/conan
-conan export-dependencies .
-conan install . --build=missing
-cmake --preset conan-release .
-cmake --build --preset conan-release --parallel $(nproc --all)
-```
-
-Alternatively you can simply run `qtcreator` inside the _distrobox_ and open the
-project as usual be selecting the `CMakeLists.txt`.
-
-
-### Building the flatpak
-
-As _GOnnect_ is mainly developed for use in _Flatpak_, some features only work in this
-kind of environment. If you want to build the _Flatpak_ locally, you can do this by
-the following commands on your host shell:
-
-```bash
-flatpak run --command=flatpak-builder org.flatpak.Builder build --user --install-deps-from=flathub --disable-rofiles-fuse --force-clean --repo=repo resources/flatpak/de.gonicus.gonnect.yml
-flatpak --user install ./repo de.gonicus.gonnect
-```
-
-# Windows
-
-Install build requirements
-
-```powershell
-# Install chocolatey: https://chocolatey.org
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-
-# install build requirements
-choco install -y git git-lfs python3 conan nsis cmake strawberryperl aqt
-choco install -y visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.MSBuildTools;includeRecommended --add Microsoft.VisualStudio.Workload.VCTools;includeRecommended --quiet"
-
-# install qt in users home folder
-aqt install-qt windows desktop 6.10.1 win64_msvc2022_64 -m qt5compat qtmultimedia qtwebengine qtwebchannel qtnetworkauth qtpositioning qtwebsockets qtgrpc qtshadertools -O $env:USERPROFILE\Qt
-
-[System.Environment]::SetEnvironmentVariable('Qt6_Dir', $env:USERPROFILE + '\Qt\6.10.1\msvc2022_64\', 'User')
-```
-
-Setup conan and build gonnect:
-
-```powershell
-cd <to where you have cloned this repository>
-
-# prepare conan
-conan config install resources/conan
-conan export-dependencies .
-conan profile detect
-conan install . --build=missing -s compiler.cppstd=17
-
-# build gonnect
-cmake --preset conan-default .
-cmake --build --preset conan-release --parallel $((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)
-cd build
-cpack
-```
-
-# License
-
-_GOnnect_ is licensed under the terms of the GNU GENERAL PUBLIC LICENSE
-Version 2, or at your opinion any later version.
-
-See [LICENSE](LICENSE) for the full content of the license.

@@ -1,0 +1,30 @@
+name: Build Outlook GOnnect Add-in
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - outlook-gonnect-addin
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build, test and package
+        shell: powershell
+        run: .\build.ps1
+
+      - name: Save package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: GOnnect-Outlook-AddIn-x64
+          compression-level: 0
+          if-no-files-found: error
+          path: artifacts/GOnnect-Outlook-AddIn-x64.zip

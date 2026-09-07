@@ -1,8 +1,0 @@
-argparse
-colorlog
-requests
-requests-cache
-pyyaml
-python-dateutil
-semver
-sh
