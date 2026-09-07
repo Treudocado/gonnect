@@ -2,7 +2,8 @@
 param(
     [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA 'GOnnect\OutlookAddIn'),
     [string]$ClassesRoot = 'HKCU:\Software\Classes',
-    [string]$OutlookAddInRoot = 'HKCU:\Software\Microsoft\Office\Outlook\Addins'
+    [string]$OutlookAddInRoot = 'HKCU:\Software\Microsoft\Office\Outlook\Addins',
+    [switch]$SkipComActivationTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,7 +12,9 @@ $progId = 'GOnnect.OutlookAddIn'
 $classId = '{A3D2629C-32F1-48E7-BD24-AC02E70427E8}'
 $className = 'GOnnect.OutlookAddIn.Connect'
 $sourceAssembly = Join-Path $PSScriptRoot 'GOnnect.OutlookAddIn.dll'
+$sourceComSmoke = Join-Path $PSScriptRoot 'GOnnect.OutlookAddIn.ComSmoke.exe'
 $installedAssembly = Join-Path $installDirectory 'GOnnect.OutlookAddIn.dll'
+$installedComSmoke = Join-Path $installDirectory 'GOnnect.OutlookAddIn.ComSmoke.exe'
 
 if (-not [Environment]::Is64BitProcess) {
     throw 'Die Installation muss mit der 64-Bit-Version von PowerShell ausgeführt werden.'
@@ -24,10 +27,18 @@ if (Get-Process -Name OUTLOOK -ErrorAction SilentlyContinue) {
 if (-not (Test-Path -LiteralPath $sourceAssembly -PathType Leaf)) {
     throw "Die Add-in-Datei wurde nicht gefunden: $sourceAssembly"
 }
+if (-not $SkipComActivationTest -and
+    -not (Test-Path -LiteralPath $sourceComSmoke -PathType Leaf)) {
+    throw "Die COM-Sicherheitsprüfung wurde nicht gefunden: $sourceComSmoke"
+}
 
 New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
 Copy-Item -LiteralPath $sourceAssembly -Destination $installedAssembly -Force
 Unblock-File -LiteralPath $installedAssembly
+if (Test-Path -LiteralPath $sourceComSmoke -PathType Leaf) {
+    Copy-Item -LiteralPath $sourceComSmoke -Destination $installedComSmoke -Force
+    Unblock-File -LiteralPath $installedComSmoke
+}
 
 foreach ($fileName in @('uninstall.ps1', 'uninstall.cmd')) {
     $sourceFile = Join-Path $PSScriptRoot $fileName
@@ -78,30 +89,55 @@ $versionKey = Join-Path $inprocKey $assemblyVersion
 $progIdKey = Join-Path $classesRoot $progId
 $outlookAddInKey = Join-Path $outlookAddInRoot $progId
 
-Set-DefaultRegistryValue -Path $classKey -Value 'GOnnect Outlook Add-in'
-Set-DefaultRegistryValue -Path (Join-Path $classKey 'ProgId') -Value $progId
-Set-DefaultRegistryValue -Path $inprocKey -Value 'mscoree.dll'
-Set-StringRegistryValue -Path $inprocKey -Name 'ThreadingModel' -Value 'Both'
-Set-StringRegistryValue -Path $inprocKey -Name 'Class' -Value $className
-Set-StringRegistryValue -Path $inprocKey -Name 'Assembly' -Value $assemblyFullName
-Set-StringRegistryValue -Path $inprocKey -Name 'RuntimeVersion' -Value $runtimeVersion
-Set-StringRegistryValue -Path $inprocKey -Name 'CodeBase' -Value $codeBase
+function Remove-AddInRegistration {
+    foreach ($registryKey in @($outlookAddInKey, $progIdKey, $classKey)) {
+        if (Test-Path -Path $registryKey) {
+            Remove-Item -Path $registryKey -Recurse -Force
+        }
+    }
+}
 
-New-RegistryKey -Path $versionKey
-Set-StringRegistryValue -Path $versionKey -Name 'Class' -Value $className
-Set-StringRegistryValue -Path $versionKey -Name 'Assembly' -Value $assemblyFullName
-Set-StringRegistryValue -Path $versionKey -Name 'RuntimeVersion' -Value $runtimeVersion
-Set-StringRegistryValue -Path $versionKey -Name 'CodeBase' -Value $codeBase
+try {
+    Set-DefaultRegistryValue -Path $classKey -Value 'GOnnect Outlook Add-in'
+    Set-DefaultRegistryValue -Path (Join-Path $classKey 'ProgId') -Value $progId
+    Set-DefaultRegistryValue -Path $inprocKey -Value 'mscoree.dll'
+    Set-StringRegistryValue -Path $inprocKey -Name 'ThreadingModel' -Value 'Both'
+    Set-StringRegistryValue -Path $inprocKey -Name 'Class' -Value $className
+    Set-StringRegistryValue -Path $inprocKey -Name 'Assembly' -Value $assemblyFullName
+    Set-StringRegistryValue -Path $inprocKey -Name 'RuntimeVersion' -Value $runtimeVersion
+    Set-StringRegistryValue -Path $inprocKey -Name 'CodeBase' -Value $codeBase
 
-New-RegistryKey -Path (Join-Path $classKey 'Implemented Categories\{62C8FE65-4EBB-45E7-B440-6E39B2CDBF29}')
-Set-DefaultRegistryValue -Path $progIdKey -Value 'GOnnect Outlook Add-in'
-Set-DefaultRegistryValue -Path (Join-Path $progIdKey 'CLSID') -Value $classId
+    New-RegistryKey -Path $versionKey
+    Set-StringRegistryValue -Path $versionKey -Name 'Class' -Value $className
+    Set-StringRegistryValue -Path $versionKey -Name 'Assembly' -Value $assemblyFullName
+    Set-StringRegistryValue -Path $versionKey -Name 'RuntimeVersion' -Value $runtimeVersion
+    Set-StringRegistryValue -Path $versionKey -Name 'CodeBase' -Value $codeBase
 
-New-RegistryKey -Path $outlookAddInKey
-New-ItemProperty -Path $outlookAddInKey -Name 'FriendlyName' -Value 'GOnnect-Anruffunktion' -PropertyType String -Force | Out-Null
-New-ItemProperty -Path $outlookAddInKey -Name 'Description' -Value 'Wählt Outlook-Kontakte über GOnnect.' -PropertyType String -Force | Out-Null
-New-ItemProperty -Path $outlookAddInKey -Name 'LoadBehavior' -Value 3 -PropertyType DWord -Force | Out-Null
-New-ItemProperty -Path $outlookAddInKey -Name 'CommandLineSafe' -Value 0 -PropertyType DWord -Force | Out-Null
+    New-RegistryKey -Path (Join-Path $classKey 'Implemented Categories\{62C8FE65-4EBB-45E7-B440-6E39B2CDBF29}')
+    Set-DefaultRegistryValue -Path $progIdKey -Value 'GOnnect Outlook Add-in'
+    Set-DefaultRegistryValue -Path (Join-Path $progIdKey 'CLSID') -Value $classId
+
+    New-RegistryKey -Path $outlookAddInKey
+    New-ItemProperty -Path $outlookAddInKey -Name 'FriendlyName' -Value 'GOnnect-Anruffunktion' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $outlookAddInKey -Name 'Description' -Value 'Wählt Outlook-Kontakte über GOnnect.' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $outlookAddInKey -Name 'LoadBehavior' -Value 3 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path $outlookAddInKey -Name 'CommandLineSafe' -Value 0 -PropertyType DWord -Force | Out-Null
+
+    if (-not $SkipComActivationTest) {
+        & $installedComSmoke
+        if ($LASTEXITCODE -ne 0) {
+            throw "Die COM-Sicherheitsprüfung ist mit Exitcode $LASTEXITCODE fehlgeschlagen."
+        }
+    }
+}
+catch {
+    $installationError = $_
+    Remove-AddInRegistration
+    if (Test-Path -LiteralPath $installDirectory) {
+        Remove-Item -LiteralPath $installDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    throw $installationError
+}
 
 Write-Host ''
 Write-Host 'Das GOnnect Outlook Add-in wurde für den aktuellen Benutzer installiert.' -ForegroundColor Green

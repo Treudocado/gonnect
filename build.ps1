@@ -22,7 +22,6 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $testExecutable = Join-Path $projectRoot 'tests\GOnnect.OutlookAddIn.Tests\bin\Release\GOnnect.OutlookAddIn.Tests.exe'
-$comSmokeExecutable = Join-Path $projectRoot 'tests\GOnnect.OutlookAddIn.ComSmoke\bin\Release\GOnnect.OutlookAddIn.ComSmoke.exe'
 & $testExecutable
 if ($LASTEXITCODE -ne 0) {
     throw "Die Tests sind mit Exitcode $LASTEXITCODE fehlgeschlagen."
@@ -30,12 +29,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $smokeTestId = [Guid]::NewGuid().ToString('N')
 $smokeTestRoot = "HKCU:\Software\GOnnectOutlookAddInTests\$smokeTestId"
-$runComActivationTest = $env:GITHUB_ACTIONS -eq 'true'
-$smokeTestClassesRoot = if ($runComActivationTest) {
-    'HKCU:\Software\Classes'
-} else {
-    Join-Path $smokeTestRoot 'Classes'
-}
+$smokeTestClassesRoot = Join-Path $smokeTestRoot 'Classes'
 $smokeTestOutlookRoot = Join-Path $smokeTestRoot 'OutlookAddins'
 $smokeTestDirectory = Join-Path $env:TEMP "GOnnectOutlookAddInTests\$smokeTestId"
 $smokeTestSource = Join-Path $smokeTestDirectory 'Source'
@@ -53,7 +47,8 @@ try {
     & (Join-Path $smokeTestSource 'install.ps1') `
         -InstallDirectory $smokeTestInstall `
         -ClassesRoot $smokeTestClassesRoot `
-        -OutlookAddInRoot $smokeTestOutlookRoot
+        -OutlookAddInRoot $smokeTestOutlookRoot `
+        -SkipComActivationTest
 
     $classKey = Join-Path $smokeTestClassesRoot "CLSID\$smokeTestClassId"
     $inprocKey = Join-Path $classKey 'InprocServer32'
@@ -72,13 +67,6 @@ try {
     }
     if ((Get-ItemPropertyValue -Path $addInKey -Name 'LoadBehavior') -ne 3) {
         throw 'Der Installations-Smoketest konnte die Outlook-Registrierung nicht bestätigen.'
-    }
-
-    if ($runComActivationTest) {
-        & $comSmokeExecutable
-        if ($LASTEXITCODE -ne 0) {
-            throw "Der COM-Aktivierungstest ist mit Exitcode $LASTEXITCODE fehlgeschlagen."
-        }
     }
 
     & (Join-Path $smokeTestSource 'uninstall.ps1') `
@@ -119,6 +107,7 @@ if (Test-Path -LiteralPath $artifactRoot) {
 New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
 
 Copy-Item -LiteralPath (Join-Path $projectRoot 'src\GOnnect.OutlookAddIn\bin\Release\GOnnect.OutlookAddIn.dll') -Destination $packageDirectory
+Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\GOnnect.OutlookAddIn.ComSmoke\bin\Release\GOnnect.OutlookAddIn.ComSmoke.exe') -Destination $packageDirectory
 Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\install.ps1') -Destination $packageDirectory
 Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\install.cmd') -Destination $packageDirectory
 Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\uninstall.ps1') -Destination $packageDirectory

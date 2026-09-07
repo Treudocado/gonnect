@@ -26,6 +26,9 @@ Das neue Outlook wird nicht unterstützt, da es keine klassischen COM-Add-ins l�
 
 Die Installation erfolgt ausschließlich für den aktuellen Windows-Benutzer unter
 `%LOCALAPPDATA%\GOnnect\OutlookAddIn` und benötigt keine Administratorrechte.
+Vor der Freigabe für Outlook aktiviert ein separater Prüfprozess die COM-Klasse und ruft die
+beiden benötigten Office-Schnittstellen testweise auf. Schlägt diese Sicherheitsprüfung fehl,
+entfernt die Installation das Add-in automatisch wieder.
 
 ## Verwendung
 
@@ -48,4 +51,3 @@ nicht verändert.
 - Zielplattform: x64 / .NET Framework 4.8
 - Outlook-Kontextmenüs: `ContextMenuContactItem` und `ContextMenuFlaggedContactItem`
 - Das Add-in enthält keine SIP-Zugangsdaten und kommuniziert nicht selbst mit der FRITZ!Box.
-
