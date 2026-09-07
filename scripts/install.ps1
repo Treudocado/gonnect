@@ -1,12 +1,15 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA 'GOnnect\OutlookAddIn'),
+    [string]$ClassesRoot = 'HKCU:\Software\Classes',
+    [string]$OutlookAddInRoot = 'HKCU:\Software\Microsoft\Office\Outlook\Addins'
+)
 
 $ErrorActionPreference = 'Stop'
 
 $progId = 'GOnnect.OutlookAddIn'
 $classId = '{A3D2629C-32F1-48E7-BD24-AC02E70427E8}'
 $className = 'GOnnect.OutlookAddIn.Connect'
-$installDirectory = Join-Path $env:LOCALAPPDATA 'GOnnect\OutlookAddIn'
 $sourceAssembly = Join-Path $PSScriptRoot 'GOnnect.OutlookAddIn.dll'
 $installedAssembly = Join-Path $installDirectory 'GOnnect.OutlookAddIn.dll'
 
@@ -67,12 +70,11 @@ function Set-StringRegistryValue {
         Out-Null
 }
 
-$classesRoot = 'HKCU:\Software\Classes'
 $classKey = Join-Path $classesRoot "CLSID\$classId"
 $inprocKey = Join-Path $classKey 'InprocServer32'
 $versionKey = Join-Path $inprocKey $assemblyVersion
 $progIdKey = Join-Path $classesRoot $progId
-$outlookAddInKey = "HKCU:\Software\Microsoft\Office\Outlook\Addins\$progId"
+$outlookAddInKey = Join-Path $outlookAddInRoot $progId
 
 Set-DefaultRegistryValue -Path $classKey -Value 'GOnnect Outlook Add-in'
 Set-DefaultRegistryValue -Path (Join-Path $classKey 'ProgId') -Value $progId
@@ -89,7 +91,7 @@ Set-StringRegistryValue -Path $versionKey -Name 'Assembly' -Value $assemblyFullN
 Set-StringRegistryValue -Path $versionKey -Name 'RuntimeVersion' -Value $runtimeVersion
 Set-StringRegistryValue -Path $versionKey -Name 'CodeBase' -Value $codeBase
 
-Set-DefaultRegistryValue -Path (Join-Path $classKey 'Implemented Categories\{62C8FE65-4EBB-45E7-B440-6E39B2CDBF29}') -Value ''
+New-RegistryKey -Path (Join-Path $classKey 'Implemented Categories\{62C8FE65-4EBB-45E7-B440-6E39B2CDBF29}')
 Set-DefaultRegistryValue -Path $progIdKey -Value 'GOnnect Outlook Add-in'
 Set-DefaultRegistryValue -Path (Join-Path $progIdKey 'CLSID') -Value $classId
 

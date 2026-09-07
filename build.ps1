@@ -27,6 +27,55 @@ if ($LASTEXITCODE -ne 0) {
     throw "Die Tests sind mit Exitcode $LASTEXITCODE fehlgeschlagen."
 }
 
+$smokeTestId = [Guid]::NewGuid().ToString('N')
+$smokeTestRoot = "HKCU:\Software\GOnnectOutlookAddInTests\$smokeTestId"
+$smokeTestClassesRoot = Join-Path $smokeTestRoot 'Classes'
+$smokeTestOutlookRoot = Join-Path $smokeTestRoot 'OutlookAddins'
+$smokeTestDirectory = Join-Path $env:TEMP "GOnnectOutlookAddInTests\$smokeTestId"
+$smokeTestSource = Join-Path $smokeTestDirectory 'Source'
+$smokeTestInstall = Join-Path $smokeTestDirectory 'Installed'
+$smokeTestProgId = 'GOnnect.OutlookAddIn'
+$smokeTestClassId = '{A3D2629C-32F1-48E7-BD24-AC02E70427E8}'
+
+try {
+    New-Item -ItemType Directory -Path $smokeTestSource -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'src\GOnnect.OutlookAddIn\bin\Release\GOnnect.OutlookAddIn.dll') -Destination $smokeTestSource
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\install.ps1') -Destination $smokeTestSource
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\uninstall.ps1') -Destination $smokeTestSource
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\uninstall.cmd') -Destination $smokeTestSource
+
+    & (Join-Path $smokeTestSource 'install.ps1') `
+        -InstallDirectory $smokeTestInstall `
+        -ClassesRoot $smokeTestClassesRoot `
+        -OutlookAddInRoot $smokeTestOutlookRoot
+
+    $classKey = Join-Path $smokeTestClassesRoot "CLSID\$smokeTestClassId"
+    $addInKey = Join-Path $smokeTestOutlookRoot $smokeTestProgId
+    if ((Get-Item -Path $classKey).GetValue('') -ne 'GOnnect Outlook Add-in') {
+        throw 'Der Installations-Smoketest konnte die COM-Registrierung nicht bestätigen.'
+    }
+    if ((Get-ItemPropertyValue -Path $addInKey -Name 'LoadBehavior') -ne 3) {
+        throw 'Der Installations-Smoketest konnte die Outlook-Registrierung nicht bestätigen.'
+    }
+
+    & (Join-Path $smokeTestSource 'uninstall.ps1') `
+        -InstallDirectory $smokeTestInstall `
+        -ClassesRoot $smokeTestClassesRoot `
+        -OutlookAddInRoot $smokeTestOutlookRoot
+
+    if ((Test-Path -Path $classKey) -or (Test-Path -Path $addInKey)) {
+        throw 'Der Deinstallations-Smoketest hat Registrierungseinträge zurückgelassen.'
+    }
+}
+finally {
+    if (Test-Path -Path $smokeTestRoot) {
+        Remove-Item -Path $smokeTestRoot -Recurse -Force
+    }
+    if (Test-Path -LiteralPath $smokeTestDirectory) {
+        Remove-Item -LiteralPath $smokeTestDirectory -Recurse -Force
+    }
+}
+
 $artifactRoot = Join-Path $projectRoot 'artifacts'
 $packageDirectory = Join-Path $artifactRoot 'GOnnect-Outlook-AddIn'
 $archive = Join-Path $artifactRoot 'GOnnect-Outlook-AddIn-x64.zip'
@@ -45,4 +94,3 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination $packag
 
 Compress-Archive -Path $packageDirectory -DestinationPath $archive -CompressionLevel Optimal
 Write-Host "Package created: $archive"
-
