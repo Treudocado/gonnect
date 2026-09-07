@@ -52,7 +52,7 @@ function Set-DefaultRegistryValue {
     )
 
     New-RegistryKey -Path $Path
-    (Get-Item -Path $Path).SetValue('', $Value, [Microsoft.Win32.RegistryValueKind]::String)
+    Set-Item -Path $Path -Value $Value
 }
 
 function Set-StringRegistryValue {
